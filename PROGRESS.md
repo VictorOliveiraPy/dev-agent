@@ -296,6 +296,123 @@ com o usuário em 2026-09-03:
   virar parte pública de uma plataforma.
 - Decidir se o `fe-catolica` ganha um remote no GitHub.
 
+## 🔎 Novo papel: Pesquisador de conteúdo (RAG) — 2026-09-03
+
+Depois de expandir o acervo do fe-catolica manualmente (via Claude Code,
+sem gastar API — `WebFetch`/`WebSearch` + `curl` pra conferir imagem) por
+várias categorias, o usuário pediu pra automatizar isso dentro do
+dev-agent: um agente que pesquisa a web de verdade (RAG) e propõe novas
+entradas, em vez de escrever fato de memória.
+
+### Desenho: por que NÃO é `AgentExecutor` (diferente dos outros papéis)
+
+`web_search` é uma tool **server-side** da própria Anthropic — o modelo a
+executa e recebe o resultado dentro da MESMA chamada, sem round-trip pelo
+cliente (ver `langchain_anthropic.chat_models`, linha ~1217, que já
+documenta `bind_tools([{"type": "web_search_20250305", "name":
+"web_search"}])`). A única tool "de verdade" (que precisa de execução no
+cliente) é `submit_entries`, a saída final estruturada. Por isso
+`agents/researcher.py` não usa o loop genérico de tool-calling do
+LangChain — é um loop manual pequeno: chama o modelo, olha se ele já
+chamou `submit_entries`, se não chamou insiste (até `max_attempts`).
+
+### O gap de autovalidação, aplicado a CONTEÚDO (não só código)
+
+O achado da sessão anterior ("o time não conseguia se autovalidar") vale
+igual aqui, só que pra fatos em vez de código. `validate_batch` nunca
+confia no que o modelo afirma:
+
+1. **Slug duplicado** é descartado antes de tudo.
+2. **`id` é sempre recalculado como `'{categoria}:{slug}'`** — nunca
+   aceito do jeito que o modelo propôs.
+3. **Toda URL de imagem leva uma requisição HTTP de verdade**
+   (`_verify_image_url`, via `httpx`) — se não resolver como `image/*`
+   200, a imagem (não a entrada) é descartada.
+4. **O item final valida contra o modelo Pydantic REAL do backend**,
+   importado do repositório `acervo-catolico-api` (não duplicado) — o
+   mesmo `model_json_schema()` vira o schema da tool `submit_entries` E
+   o validador, então o modelo nunca recebe um contrato diferente do que
+   será cobrado dele.
+
+Nada disso substitui checar o TEXTO (datas, nomes, teologia) — isso
+ainda depende de revisão humana antes de publicar (ver "Pendente de
+revisão" abaixo). `validate_batch` pega estrutura e imagem, não fato.
+
+### Primeiro lote real: concílios ecumênicos (categoria fechada, 21 no total)
+
+Escolhido de propósito como piloto: dá pra chegar a 100% da categoria
+(diferente de santos/papas, sem teto natural), e serve pra medir custo
+real antes de decidir se vale escalar.
+
+**Três bugs reais encontrados na primeira execução de verdade** (nenhum
+pego pelos testes com fake model — só apareceram gastando API de
+verdade):
+
+1. **Pedir 18 concílios numa chamada só estourou `max_tokens`** (a
+   tentativa gastou ~220k tokens só de contexto acumulado de busca — e
+   FALHOU, sem gravar nada) e o código original lia
+   `call["args"]["itens"]` sem checar se a tool call tinha vindo
+   completa, resultando num `KeyError` cru sem contexto nenhum. Corrigido
+   em duas frentes: (a) `research_batch` agora checa
+   `response_metadata["stop_reason"] == "max_tokens"` e falha com
+   mensagem clara ANTES de tentar ler `tool_calls`; (b)
+   `research_concilios.py` passou a pedir em sub-lotes de 4 (`_CHUNK_SIZE`),
+   não os 18 de uma vez — 5 chamadas menores em vez de uma gigante, cada
+   uma resiliente (um sub-lote falhar não derruba os outros).
+2. **O modelo devolveu `"id": "efeso"` em vez de `"id": "concilios:efeso"`**
+   — quebra a convenção usada em TODA entrada existente do acervo.
+   Corrigido removendo a decisão do modelo: `validate_batch` agora
+   recalcula `id` sempre, ignorando o que veio na resposta (ver ponto 2
+   da lista de autovalidação acima).
+3. **Tags vieram em `kebab-case-sem-acento`** (`seculo-v`, `leao-magno`)
+   — o resto do acervo usa palavras naturais com acento (`século V`,
+   `Leão Magno`); isso quebraria a busca por tema no site. Sem checagem
+   automática pra isso (é estilo, não schema) — corrigido manualmente
+   nas 4 entradas já gravadas, e a persona do pesquisador ganhou uma
+   regra explícita com os exemplos reais do erro (regra 7). Também
+   apareceu um vazamento de inglês no meio de uma frase em português
+   ("é **rightly** chamada Mãe de Deus") — mesma categoria de problema
+   (estilo, não estrutura), mesma resposta: regra explícita na persona
+   (regra 8) + correção manual do que já tinha sido escrito.
+
+**Custo real observado**: o sub-lote de 4 concílios que teve sucesso
+gastou **264.787 tokens** (255.577 de entrada, 9.210 de saída — a
+maioria é resultado de busca acumulado no contexto, não geração). A
+tentativa anterior de 18-de-uma-vez gastou ~220k tokens e não gravou
+nada (falhou). **O crédito da API acabou nesse ponto** — restam 14 dos
+18 concílios, mais os lotes de papas/santos/milagres que o usuário
+pediu, tudo pendente de mais crédito.
+
+Isso é bem mais caro, por entrada, do que fazer a mesma pesquisa
+manualmente via Claude Code (`WebFetch`/`WebSearch`) — o resultado de
+busca da Anthropic fica inteiro no contexto a cada turno subsequente,
+sem o mesmo controle de "resumir antes de usar" que dá pra fazer
+manualmente. **Considerar**: usar o tier gratuito do Google Gemini
+(tem tool de busca nativa, `google_search`) como backend alternativo
+pra este papel especificamente — exigiria `langchain-google-genai` como
+dependência nova e adaptar o formato da tool de busca (a da Anthropic e
+a do Gemini não são o mesmo shape). Ainda não feito; avaliar quando/se o
+custo da Anthropic pra este papel voltar a incomodar.
+
+### Estado atual
+
+- ✅ `agents/researcher.py` (`research_batch`, `validate_batch`,
+  `_verify_image_url`) — 11 testes, zero chamada real de API neles
+  (fake model + `_verify_image_url` monkeypatchada).
+- ✅ `research_concilios.py` — primeiro script piloto, com `--dry-run`
+  pra conferir o prompt/lotes sem gastar nada.
+- ✅ 4/18 concílios que faltavam já estão em
+  `acervo-catolico-api/app/data/concilios.json`, revisados e com os 3
+  bugs acima corrigidos manualmente (nenhum commit/push feito ainda —
+  aguardando decisão sobre completar o lote primeiro).
+- ⏳ Faltam 14 concílios, e os lotes de papas (263!), santos (~15-20) e
+  milagres eucarísticos que o usuário também pediu — todos bloqueados
+  por crédito de API até novo aviso.
+- ⏳ Nenhuma das 4 entradas gravadas tem imagem (o modelo preferiu `null`
+  a arriscar — ver regra 3 da persona) — ficaria bom completar isso,
+  manualmente (como as outras categorias) ou num lote de pesquisa
+  dedicado só a imagem, depois que houver crédito de novo.
+
 ## Pendências / próximos passos possíveis
 
 1. ✅ **Validar o frontend do fe-catolica rodando de verdade** — feito
@@ -372,3 +489,24 @@ com o usuário em 2026-09-03:
   usando Vite. Sempre checar `package.json`/config real do projeto fonte
   antes de destilar padrões, e decidir explicitamente se a stack do time
   muda ou se só os princípios agnósticos são aproveitados.
+- **A tool `web_search` nativa da Anthropic é MUITO mais cara, em
+  tokens, do que parece.** Cada resultado de busca fica inteiro no
+  contexto do turno e de todos os turnos seguintes — 4 itens pesquisados
+  gastaram 264.787 tokens numa chamada só (ver seção "Pesquisador de
+  conteúdo" acima). Nunca peça um lote grande (18 itens) numa chamada só
+  por causa disso: além do custo, o output também estoura `max_tokens`
+  fácil e a resposta vem cortada no meio da tool call. Prefira lotes de
+  3-6 itens por chamada.
+- **`response.tool_calls` pode vir com uma tool chamada mas sem os
+  argumentos esperados** se a geração foi cortada por `max_tokens` no
+  meio do JSON — sempre cheque `response.response_metadata["stop_reason"]`
+  ANTES de indexar `call["args"][...]`, ou um corte vira `KeyError` sem
+  contexto nenhum em vez de um erro claro (ver `agents/researcher.py::
+  research_batch`).
+- **Nunca deixe o modelo decidir o valor de um campo 100% derivável**
+  (ex.: `id`, que é sempre `'{categoria}:{slug}'`) **quando dá pra
+  calcular em código.** O pesquisador devolveu `id: "efeso"` em vez de
+  `id: "concilios:efeso"` na primeira tentativa real — bug de
+  inconsistência que só existe porque o modelo tinha esse campo pra
+  preencher. `validate_batch` agora recalcula `id` sempre, ignorando o
+  que vem na resposta.
