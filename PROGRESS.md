@@ -7,8 +7,9 @@ ponta a ponta: **Fundação → especialista com tools → segundo especialista
 → Supervisor → padrões de código próprios → refatoração pro estilo real
 → rastreamento de custos + dashboard → padronização com Pydantic →
 diretórios em inglês + CI + padrão de frontend real → padrão de design/UX
-→ DesignPlan estruturado → RAG sob demanda (`search_standards`)**. O repo
-já está no GitHub (`VictorOliveiraPy/dev-agent`), e a conta da Anthropic
+→ DesignPlan estruturado → RAG sob demanda (`search_standards`) →
+prompt caching (`cost-optimize`)**. O repo já está no GitHub
+(`VictorOliveiraPy/dev-agent`), e a conta da Anthropic
 ficou sem crédito no meio do dia 02 — por isso o dia 03 foi todo em coisas
 que não custam API (correção de imprecisões técnicas, rastreamento de
 uso, dashboard, Pydantic, renomeação de diretórios, CI, auditoria de
@@ -20,8 +21,10 @@ ARCHITECTURE.md, que documenta as decisões e o porquê de cada uma.
 - **`agents/llm.py`** — fábrica única do `ChatAnthropic` (`claude-opus-5`,
   `max_tokens` explícito — evita respostas cortadas no meio de tool calls).
 - **`agents/team.py`** — personas do time (`ROLES`) + composição automática
-  com `standards/*.md` (`_build_persona`). Testado que monta certo, inclusive
-  o escape de chaves literais (bug real que já apareceu e foi corrigido).
+  com `standards/*.md` (`_build_persona`). A persona vira uma
+  `SystemMessage` com `cache_control` (`_system_message`) — ver o item de
+  prompt caching mais abaixo; isso também eliminou o hack antigo de
+  escapar chaves literais, que não é mais necessário.
 - **`agents/tools.py`** — `write_file`/`read_file`/`list_dir`/`run_command`
   sandboxed em `workspace/` (path traversal bloqueado, testado).
 - **`agents/project_tools.py`** — mesma ideia, mas sandboxed na raiz do
@@ -142,6 +145,20 @@ ARCHITECTURE.md, que documenta as decisões e o porquê de cada uma.
   clássica — documentado no teste, não é bug. Conectada como tool de
   `dev_backend`/`dev_frontend`/Supervisor, somando às tools de arquivo.
   5 testes novos, 33 no total. Ver ARCHITECTURE.md para a decisão completa.
+- **Prompt caching (`cache_control: ephemeral`)** na mensagem de sistema
+  de `create_agent`/`create_agent_with_tools`, via a skill `claude-api
+  cost-optimize`. Persona ~2.1-2.9k tokens estimados por papel,
+  reenviada inteira em cada iteração do loop — maior alvo de custo do
+  projeto. Efeito colateral: virou uma `SystemMessage` direta em vez da
+  tupla `("system", persona)` do `ChatPromptTemplate`, então o escape de
+  chaves literais deixou de ser necessário e foi removido (bug antigo,
+  não volta). De brinde, `max_tokens` do agente com tools subiu de 8192
+  pra 16000 (higiene de output, evita truncar loop agentic). Testado o
+  wiring (a mensagem chega ao modelo com `cache_control`, sem chaves
+  escapadas) — o GANHO de custo em si só se mede com uso real
+  (`usage.cache_read_input_tokens > 0`), pendente de crédito. 2 testes
+  novos, 35 no total. Effort menor no roteador e modelo mais barato foram propostos mas NÃO
+  aplicados — exigem um eval que não temos (ver ARCHITECTURE.md).
 
 ## Pendências / próximos passos possíveis
 
@@ -184,10 +201,12 @@ ARCHITECTURE.md, que documenta as decisões e o porquê de cada uma.
 - **`ChatAnthropic` sem `max_tokens` explícito corta respostas com
   thinking + várias tool calls no meio do JSON.** Sempre passe
   `max_tokens` (ver `agents/llm.py`).
-- **`ChatPromptTemplate` trata a string do "system" como f-string** —
-  chaves literais de exemplo de código (ex: `extra={"user_id": user.id}`)
-  quebram a montagem do prompt se não forem escapadas (`_build_persona` já
-  faz isso).
+- **`ChatPromptTemplate` trata a tupla `("system", texto)` como f-string**
+  — chaves literais de exemplo de código (ex: `extra={"user_id": user.id}`)
+  quebravam a montagem do prompt. Resolvido de vez (não é mais um "cuidado
+  ao editar", virou impossível de acontecer): a persona agora vira uma
+  `SystemMessage` construída direto (`agents/team.py::_system_message`),
+  que não passa pelo motor de template — nenhum escape é necessário.
 - **A conta da Anthropic ficou sem crédito de API** no meio da sessão —
   se `team_supervisor.py`/`refactor_team.py` falharem com
   `credit balance is too low`, é isso: recarregar em

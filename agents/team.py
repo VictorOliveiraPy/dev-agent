@@ -11,6 +11,7 @@ Python — mesma ideia de um CLAUDE.md).
 from pathlib import Path
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable
@@ -78,17 +79,30 @@ def _build_persona(role: str) -> str:
         if content:
             parts.append(f"## Padrões específicos ({filename}):\n{content}")
 
-    final_persona = "\n\n".join(parts)
+    return "\n\n".join(parts)
 
-    # ChatPromptTemplate trata a string do "system" como um template
-    # f-string por padrão: qualquer '{' literal (ex: exemplo de código com
-    # `extra={"user_id": user.id}` nos .md de padrões) seria interpretado
-    # como início de variável e quebra a montagem do prompt (bug real que
-    # apareceu ao adicionar exemplos de código em standards/backend.md).
-    # Escapamos aqui porque a persona é conteúdo literal, nunca um template
-    # com variáveis de verdade — {task} continua funcionando porque vive
-    # numa mensagem "human" separada, não dentro da persona.
-    return final_persona.replace("{", "{{").replace("}", "}}")
+
+def _system_message(persona: str) -> SystemMessage:
+    """Constrói a mensagem de sistema com prompt caching explícito.
+
+    A persona (papel + `standards/*.md`) é IDÊNTICA em toda chamada de um
+    mesmo papel — e é reenviada inteira a cada iteração do loop de tool
+    calling (ver `create_agent_with_tools`), então cacheá-la é o maior
+    ganho de custo do projeto (ver ARCHITECTURE.md, seção "Custo").
+    `cache_control` no bloco marca esse prefixo como cacheável; a mensagem
+    "human" que vem depois (a tarefa, que muda a cada chamada) fica de
+    fora do cache de propósito.
+
+    Construir a SystemMessage diretamente (em vez da tupla `("system",
+    persona)` do ChatPromptTemplate) tem um efeito colateral bom: essa
+    tupla trata a string como TEMPLATE f-string, então chaves literais de
+    exemplo de código (`extra={"user_id": user.id}`) precisavam ser
+    escapadas — bug real que já apareceu. Uma SystemMessage já pronta não
+    passa pelo motor de template, então o escape deixou de ser necessário.
+    """
+    return SystemMessage(content=[
+        {"type": "text", "text": persona, "cache_control": {"type": "ephemeral"}}
+    ])
 
 
 def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Runnable:
@@ -111,7 +125,7 @@ def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Run
     """
     persona = _build_persona(role)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", persona),
+        _system_message(persona),
         ("human", "{task}"),
     ])
     model = build_chat_model()
@@ -146,14 +160,18 @@ def create_agent_with_tools(role: str, tools: list[BaseTool]) -> Runnable:
     """
     persona = _build_persona(role)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", persona),
+        _system_message(persona),
         ("human", "{task}"),
         # agent_scratchpad: onde o AgentExecutor injeta o histórico de
         # tool_use/tool_result de cada iteração do loop, dentro desta
         # mesma tarefa.
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
-    model = build_chat_model()
+    # max_tokens maior que o padrão (8192): um loop agentic escrevendo
+    # vários arquivos tem mais chance de estourar o teto padrão no meio de
+    # uma tool call (o mesmo tipo de corte que já aconteceu antes — ver
+    # ARCHITECTURE.md) do que uma chamada de texto/planejamento única.
+    model = build_chat_model(max_tokens=16000)
     agent = create_tool_calling_agent(model, tools, prompt)
     executor = AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=40)
     # Mesma ideia de create_agent: cada chamada ao modelo dentro do loop de

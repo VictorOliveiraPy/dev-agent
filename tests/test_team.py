@@ -5,9 +5,32 @@ da Anthropic.
 """
 
 import pytest
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 from agents import team
 from agents.schemas import ColorToken, DesignPlan
+
+
+class _RecordingFakeChatModel(BaseChatModel):
+    """Chat model falso que grava as mensagens recebidas, pra inspecionar
+    o que de fato chegaria à API — sem chamar a API de verdade.
+    """
+
+    received_messages: list = []
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        self.received_messages.append(messages)
+        message = AIMessage(
+            content="resposta falsa",
+            usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake"
 
 
 @pytest.fixture
@@ -38,16 +61,48 @@ def test_should_include_role_specific_standards_when_file_exists(standards_dir):
     assert "Regra de backend Y" in persona
 
 
-def test_should_escape_curly_braces_when_standards_contain_code_examples(standards_dir):
-    """Chaves literais de exemplo de código precisam ficar escapadas — sem
-    isso o ChatPromptTemplate quebra (bug real que já aconteceu no projeto).
+def test_should_keep_curly_braces_unescaped_when_standards_contain_code_examples(standards_dir):
+    """_build_persona NÃO escapa chaves — ela devolve texto literal.
+
+    O escape só era necessário quando a persona passava pelo motor de
+    template do ChatPromptTemplate (tupla ("system", persona), tratada
+    como f-string). Isso mudou: agora a persona vira uma SystemMessage já
+    pronta (ver `_system_message`), que não passa por esse motor — chaves
+    de exemplo de código chegam intactas no prompt de verdade.
     """
     (standards_dir / "general.md").write_text('extra={"user_id": user.id}', encoding="utf-8")
 
     persona = team._build_persona("arquiteto")
 
-    assert "{{" in persona
-    assert "}}" in persona
+    assert 'extra={"user_id": user.id}' in persona
+    assert "{{" not in persona
+
+
+def test_should_mark_system_message_as_cacheable():
+    """_system_message anexa cache_control ao bloco — o system prompt (fixo
+    por papel) é o maior alvo de prompt caching do projeto, reenviado
+    inteiro em toda iteração do loop de tool calling.
+    """
+    message = team._system_message("persona de teste")
+
+    assert message.content[0]["cache_control"] == {"type": "ephemeral"}
+    assert message.content[0]["text"] == "persona de teste"
+
+
+def test_should_send_cache_control_to_model_when_create_agent_is_invoked(monkeypatch):
+    """Fim a fim: create_agent monta um prompt cuja mensagem de sistema
+    chega ao modelo já marcada com cache_control — não só a unidade
+    _system_message isolada, mas o wiring completo de create_agent.
+    """
+    fake_model = _RecordingFakeChatModel()
+    monkeypatch.setattr(team, "build_chat_model", lambda *args, **kwargs: fake_model)
+
+    agent = team.create_agent("dev_backend")
+    agent.invoke({"task": "tarefa de teste"})
+
+    assert len(fake_model.received_messages) == 1
+    system_message = fake_model.received_messages[0][0]
+    assert system_message.content[0]["cache_control"] == {"type": "ephemeral"}
 
 
 def test_should_return_empty_string_when_standard_file_is_missing(standards_dir):

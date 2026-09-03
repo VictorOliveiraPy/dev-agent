@@ -143,6 +143,39 @@ um dict solto.
 é manual por enquanto (ver PROGRESS.md — não há necessidade real de
 tempo real ainda).
 
+### Custo
+
+**Prompt caching (`cache_control: ephemeral`) na mensagem de sistema de
+`create_agent`/`create_agent_with_tools`.** Achado da skill `claude-api
+cost-optimize`: a persona (papel + `standards/*.md`) é ~2.1-2.9k tokens
+estimados por papel (`dev_backend`/`dev_frontend`), idêntica em toda
+chamada, e reenviada INTEIRA a cada iteração do loop de tool calling — o
+maior alvo de custo do projeto, e o único free win real que dava pra
+aplicar sem crédito de API (o wiring se testa; o ganho de custo em si só
+se mede com uso real). Efeito colateral bom: como a persona virou uma
+`SystemMessage` construída direto (não mais a tupla `("system", persona)`
+do `ChatPromptTemplate`, que a tratava como template f-string), o hack de
+escapar chaves literais (`_build_persona` fazia `.replace("{", "{{")`)
+deixou de ser necessário e foi removido.
+
+**`max_tokens=16000` no agente com tools** (subiu de 8192, o default de
+`build_chat_model`). Não é uma economia — é uma correção de higiene de
+output: um loop agentic escrevendo vários arquivos tem mais chance de
+estourar um teto baixo no meio de uma tool call (o mesmo tipo de corte
+que já causou um bug real, documentado acima) do que uma chamada de
+texto/planejamento única. Uma tarefa que falha por truncamento e precisa
+ser refeita custa mais que a folga extra no teto.
+
+**Propostas descartadas por enquanto (exigem eval que não temos):**
+effort mais baixo no roteador do Supervisor (é uma decisão pequena e
+repetida — bom candidato, mas sem forma de medir se a qualidade do
+roteamento cai) e usar um modelo mais barato pra tarefas rotineiras do
+`dev_backend`/`dev_frontend` (arquitetura de dois modelos). Aplicar
+qualquer um dos dois sem conseguir comparar antes/depois seria trocar
+qualidade por custo às cegas — a skill de cost-optimize é explícita
+sobre isso: tradeoffs só se aplicam com uma forma de medir a queda de
+qualidade, e hoje não temos nenhuma.
+
 ### RAG e recuperação de conhecimento
 
 **BM25 (busca por palavra-chave), não embeddings semânticos, pra
