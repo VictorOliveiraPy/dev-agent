@@ -15,6 +15,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 
 from agentes.llm import build_chat_model
 from agentes.usage import usage_handler
@@ -88,15 +89,20 @@ def _build_persona(role: str) -> str:
     return final_persona.replace("{", "{{").replace("}", "}}")
 
 
-def create_agent(role: str) -> Runnable:
+def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Runnable:
     """Monta a chain LCEL (prompt | model | parser) de um papel do time.
 
     Args:
         role: uma chave de ROLES (ex: "arquiteto").
+        output_schema: se informado, a chain devolve uma INSTÂNCIA desse
+            modelo Pydantic (saída estruturada — ver
+            `agentes.schemas.ArchitecturePlan`) em vez de texto solto. Sem
+            isso, o comportamento padrão (texto) é mantido.
 
     Returns:
-        Um Runnable que recebe {"task": str} e devolve a resposta em texto,
-        já sob a perspectiva daquele papel.
+        Um Runnable que recebe {"task": str} e devolve a resposta já sob a
+        perspectiva daquele papel — texto (padrão) ou uma instância de
+        `output_schema`, se informado.
 
     Raises:
         KeyError: se `role` não existir em ROLES.
@@ -106,7 +112,13 @@ def create_agent(role: str) -> Runnable:
         ("system", persona),
         ("human", "{task}"),
     ])
-    chain = prompt | build_chat_model() | StrOutputParser()
+    model = build_chat_model()
+
+    if output_schema is not None:
+        chain = prompt | model.with_structured_output(output_schema)
+    else:
+        chain = prompt | model | StrOutputParser()
+
     # with_config "gruda" o callback de uso de tokens e a tag de papel em
     # QUALQUER invocação futura desta chain — quem chama .invoke() não
     # precisa saber que isso existe (ver agentes/usage.py e dashboard.py).

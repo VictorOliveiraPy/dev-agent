@@ -10,7 +10,6 @@ resposta (`input_tokens`/`output_tokens`/`total_tokens`), via um callback
 handler próprio.
 """
 
-import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +19,8 @@ from uuid import UUID
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
+
+from agentes.schemas import UsageEntry
 
 logger = logging.getLogger(__name__)
 
@@ -84,20 +85,26 @@ class UsageCallbackHandler(BaseCallbackHandler):
                 self._record(role=role, usage=usage, model=model)
 
     def _record(self, *, role: str, usage: dict[str, Any], model: str) -> None:
-        """Serializa uma entrada de uso e anexa ao arquivo de log."""
-        entry = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "role": role,
-            "model": model,
-            "input_tokens": usage.get("input_tokens", 0),
-            "output_tokens": usage.get("output_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-        }
-        logger.info("Chamada ao modelo concluída", extra=entry)
+        """Valida uma entrada de uso contra UsageEntry e anexa ao arquivo de log.
+
+        Validar aqui (não só na leitura, em dashboard.py) garante que uma
+        linha malformada nunca chega a ser escrita — se o usage_metadata
+        vier com um tipo inesperado, falha alto e cedo, não silenciosamente
+        no meio de um DataFrame do dashboard.
+        """
+        entry = UsageEntry(
+            timestamp=datetime.now(UTC),
+            role=role,
+            model=model,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            total_tokens=usage.get("total_tokens", 0),
+        )
+        logger.info("Chamada ao modelo concluída", extra=entry.model_dump(mode="json"))
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.write(entry.model_dump_json() + "\n")
 
 
 # Instância única compartilhada por todos os agentes do time — ver

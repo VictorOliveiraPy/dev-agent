@@ -5,7 +5,8 @@
 O time de tecnologia (LangChain + Claude) está montado e validado
 ponta a ponta: **Fundação → especialista com tools → segundo especialista
 → Supervisor → padrões de código próprios → refatoração pro estilo real
-→ rastreamento de custos + dashboard**. O repo já está no GitHub
+→ rastreamento de custos + dashboard → padronização com Pydantic**. O
+repo já está no GitHub
 (`VictorOliveiraPy/dev-agent`), e a conta da Anthropic ficou sem crédito
 no meio do dia 02 — por isso o dia 03 foi todo em coisas que não custam
 API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
@@ -59,13 +60,26 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   últimas chamadas. Testado: sobe (`streamlit run`, HTTP 200 confirmado)
   e a função de leitura (`load_usage`) tem testes próprios. Rodar com
   `.venv/bin/streamlit run dashboard.py`.
+- **`agentes/schemas.py`** — lugar único pros modelos Pydantic
+  compartilhados: `Decision` (movido de dentro de `supervisor.py`),
+  `UsageEntry` (agora é o schema de verdade do `usage_log.jsonl`, validado
+  tanto na escrita quanto na leitura pelo dashboard) e `ArchitecturePlan` +
+  `PlannedFile` (novo). O papel `arquiteto`, quando acionado pelo
+  Supervisor, agora devolve um `ArchitecturePlan` estruturado
+  (`create_agent(role, output_schema=...)`, parâmetro novo) em vez de
+  prosa livre truncada — o resumo que vai pro histórico do Supervisor é
+  montado a partir dos campos do modelo. Testado (validação dos 4
+  modelos + wiring de ponta a ponta do `usage_log.jsonl`); a saída
+  estruturada do arquiteto em si só é exercitada de verdade com crédito.
 
 ## Pendências / próximos passos possíveis
 
-1. **Rodar `team_supervisor.py` de novo agora que `padroes/backend.md` é
-   rigoroso.** A última execução ponta a ponta foi ANTES da rigorização —
-   vale ver se o código gerado agora reflete IDOR-safe queries, exceções
-   tipadas, etc. Vai ser a primeira execução real aparecendo no dashboard.
+1. **Rodar `team_supervisor.py` de novo** — a última execução ponta a
+   ponta foi ANTES da rigorização de `padroes/backend.md` E antes da
+   saída estruturada do arquiteto. Vale ver: (a) se o código gerado
+   reflete IDOR-safe queries, exceções tipadas etc.; (b) se o
+   `ArchitecturePlan` vem preenchido direito; (c) vai ser a primeira
+   execução real aparecendo no dashboard.
 2. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
    o próprio `dev_backend` conferir se a refatoração manual de hoje ficou
    aderente aos padrões, do ponto de vista dele.

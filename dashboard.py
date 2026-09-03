@@ -10,10 +10,15 @@ do runtime do Streamlit; todo o resto (gráficos, métricas) só roda quando
 o arquivo é executado via `streamlit run`, nunca ao ser importado.
 """
 
-import json
+import logging
 from pathlib import Path
 
 import pandas as pd
+from pydantic import ValidationError
+
+from agentes.schemas import UsageEntry
+
+logger = logging.getLogger(__name__)
 
 USAGE_LOG_PATH = Path(__file__).parent / "usage_log.jsonl"
 
@@ -23,21 +28,33 @@ USAGE_COLUMNS = ["timestamp", "role", "model", "input_tokens", "output_tokens", 
 def load_usage(log_path: Path = USAGE_LOG_PATH) -> pd.DataFrame:
     """Lê o arquivo de log de uso inteiro e devolve como DataFrame.
 
+    Cada linha é validada contra `UsageEntry` — o mesmo modelo usado por
+    `agentes/usage.py` pra escrever o log. Uma linha malformada (log antigo,
+    edição manual) é ignorada com um aviso no log, não derruba o dashboard
+    inteiro.
+
     Devolve um DataFrame vazio (mas com as colunas certas) se o arquivo
     ainda não existir — acontece antes da primeira chamada real ao modelo.
     """
     if not log_path.exists():
         return pd.DataFrame(columns=USAGE_COLUMNS)
 
-    rows = [
-        json.loads(line)
-        for line in log_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    if not rows:
+    entries: list[UsageEntry] = []
+    for line_number, line in enumerate(log_path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            entries.append(UsageEntry.model_validate_json(line))
+        except ValidationError as exc:
+            logger.warning(
+                "Linha inválida em usage_log.jsonl, ignorada",
+                extra={"line_number": line_number, "error": str(exc)},
+            )
+
+    if not entries:
         return pd.DataFrame(columns=USAGE_COLUMNS)
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame([entry.model_dump() for entry in entries])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df
 
