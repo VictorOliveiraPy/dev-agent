@@ -17,6 +17,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 
 from agentes.llm import build_chat_model
+from agentes.usage import usage_handler
 
 # Cada entrada é o "system prompt" que define o papel dentro do time.
 ROLES: dict[str, str] = {
@@ -105,10 +106,14 @@ def create_agent(role: str) -> Runnable:
         ("system", persona),
         ("human", "{task}"),
     ])
-    return prompt | build_chat_model() | StrOutputParser()
+    chain = prompt | build_chat_model() | StrOutputParser()
+    # with_config "gruda" o callback de uso de tokens e a tag de papel em
+    # QUALQUER invocação futura desta chain — quem chama .invoke() não
+    # precisa saber que isso existe (ver agentes/usage.py e dashboard.py).
+    return chain.with_config(callbacks=[usage_handler], tags=[f"role:{role}"])
 
 
-def create_agent_with_tools(role: str, tools: list[BaseTool]) -> AgentExecutor:
+def create_agent_with_tools(role: str, tools: list[BaseTool]) -> Runnable:
     """Monta um AgentExecutor: a persona do papel + um loop de tool calling.
 
     Diferente de `create_agent` (chain fixa prompt -> model -> parser), aqui
@@ -122,7 +127,8 @@ def create_agent_with_tools(role: str, tools: list[BaseTool]) -> AgentExecutor:
             pode chamar.
 
     Returns:
-        Um AgentExecutor pronto para `.invoke({"task": ...})`.
+        Um Runnable (AgentExecutor com callback/tag de uso já anexados)
+        pronto para `.invoke({"task": ...})`.
     """
     persona = _build_persona(role)
     prompt = ChatPromptTemplate.from_messages([
@@ -135,4 +141,7 @@ def create_agent_with_tools(role: str, tools: list[BaseTool]) -> AgentExecutor:
     ])
     model = build_chat_model()
     agent = create_tool_calling_agent(model, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=40)
+    executor = AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=40)
+    # Mesma ideia de create_agent: cada chamada ao modelo dentro do loop de
+    # tool calling também cai no usage_log.jsonl, marcada com este papel.
+    return executor.with_config(callbacks=[usage_handler], tags=[f"role:{role}"])

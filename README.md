@@ -40,6 +40,21 @@ cp .env.example .env   # preencha ANTHROPIC_API_KEY
 .venv/bin/python refactor_team.py       # auditoria (só leitura) do próprio código do time
 ```
 
+## Custos — dashboard de uso de tokens
+
+Toda chamada real ao modelo feita via `agentes/team.py` (`create_agent` /
+`create_agent_with_tools`) é registrada automaticamente em
+`usage_log.jsonl` (gitignored), com o papel responsável, tokens de entrada/
+saída e timestamp — ver `agentes/usage.py`.
+
+```bash
+.venv/bin/streamlit run dashboard.py
+```
+
+Mostra total de chamadas, tokens por agente e ao longo do tempo, e as
+últimas chamadas. Antes da primeira execução real, a página só mostra um
+aviso de "nenhum uso registrado ainda" — é esperado.
+
 ## Qualidade
 
 ```bash

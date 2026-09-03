@@ -1,12 +1,14 @@
-# Progresso — sessão de 2026-09-02
+# Progresso — sessões de 2026-09-02 e 2026-09-03
 
 ## Onde paramos
 
 O time de tecnologia (LangChain + Claude) está montado e validado
 ponta a ponta: **Fundação → especialista com tools → segundo especialista
-→ Supervisor → padrões de código próprios → refatoração pro estilo real**.
-Hoje também traduzimos os `.md` de padrões pra inglês e deixamos o repo
-pronto pra ir pro GitHub.
+→ Supervisor → padrões de código próprios → refatoração pro estilo real
+→ rastreamento de custos + dashboard**. O repo já está no GitHub
+(`VictorOliveiraPy/dev-agent`), e a conta da Anthropic ficou sem crédito
+no meio do dia 02 — por isso o dia 03 foi todo em coisas que não custam
+API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
 
 ## O que já funciona (testado de verdade, rodando)
 
@@ -42,13 +44,28 @@ pronto pra ir pro GitHub.
   (ruff + pytest), 12 testes novos (`tests/`) cobrindo lógica pura
   (montagem de persona, sandbox de caminho). `ruff check .` limpo,
   `pytest -q` passando.
+- **`agentes/usage.py`** — `UsageCallbackHandler` grava cada chamada real
+  ao modelo em `usage_log.jsonl` (papel, tokens de entrada/saída, modelo,
+  timestamp), lendo o `usage_metadata` nativo do `langchain_anthropic`
+  (NÃO o `get_openai_callback`, que é específico da OpenAI e nem está
+  instalado no projeto — ver "Gotchas"). Já conectado em
+  `agentes/team.py` (`create_agent`/`create_agent_with_tools` via
+  `.with_config(callbacks=..., tags=["role:<papel>"])`) — todo agente já
+  registra uso automaticamente, sem precisar mudar nenhum script de
+  entrada. Testado de ponta a ponta com um chat model falso (sem custo de
+  API) provando que o callback dispara de verdade.
+- **`dashboard.py`** — app Streamlit que lê `usage_log.jsonl` e mostra
+  total de chamadas, tokens por agente, tokens ao longo do tempo e as
+  últimas chamadas. Testado: sobe (`streamlit run`, HTTP 200 confirmado)
+  e a função de leitura (`load_usage`) tem testes próprios. Rodar com
+  `.venv/bin/streamlit run dashboard.py`.
 
 ## Pendências / próximos passos possíveis
 
 1. **Rodar `team_supervisor.py` de novo agora que `padroes/backend.md` é
    rigoroso.** A última execução ponta a ponta foi ANTES da rigorização —
    vale ver se o código gerado agora reflete IDOR-safe queries, exceções
-   tipadas, etc.
+   tipadas, etc. Vai ser a primeira execução real aparecendo no dashboard.
 2. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
    o próprio `dev_backend` conferir se a refatoração manual de hoje ficou
    aderente aos padrões, do ponto de vista dele.
@@ -60,12 +77,19 @@ pronto pra ir pro GitHub.
    feito com o backend, usando `melhorperfil-web` como fonte).
 5. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
    via tool em vez de tudo empilhado na persona) — ficaram cogitados no
-   roteiro original e nunca foram construídos.
+   roteiro original e nunca foram construídos. `trim_messages` (LangChain,
+   ainda válido/atual) é o candidato certo pro dia que isso for construído
+   — as classes antigas de `langchain.memory` (`ConversationBufferWindowMemory`
+   e primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
 6. **Renomear os diretórios** `agentes/`, `padroes/`, `workspace/` pro
    inglês — decisão adiada de propósito (mudança mais estrutural/arriscada
    que renomear só identificadores de código).
 7. **CI** — agora que `ruff`/`pytest` estão configurados, dá pra subir um
    GitHub Actions rodando os dois a cada push.
+8. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+   acompanhar em tempo real durante uma execução longa (ex: o Supervisor
+   rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
+   é preciso atualizar a página manualmente.
 
 ## Gotchas importantes (não repetir)
 
@@ -84,3 +108,12 @@ pronto pra ir pro GitHub.
   necessariamente o `.venv` do projeto** — sempre invocar como
   `.venv/bin/python -m <ferramenta>`, nunca confiar em `ruff`/`pytest`
   soltos.
+- **`get_openai_callback` (langchain_community) não serve pra rastrear
+  uso do Claude** — é específico do formato de resposta da OpenAI, e o
+  `langchain_community` nem é dependência do projeto. O jeito certo é o
+  `usage_metadata` nativo do `langchain_anthropic` (ver `agentes/usage.py`).
+- **`ConversationBufferWindowMemory`, `ConversationSummaryMemory` e
+  `ConversationSummaryBufferMemory` (`langchain.memory`) estão
+  deprecadas** desde a 0.3.1 (removal na 1.0.0) — não usar em código
+  novo. O guia de migração do LangChain aponta pro padrão LCEL nativo
+  (`trim_messages` + histórico gerenciado à mão).
