@@ -239,15 +239,45 @@ backend auditados, aplicado ao próprio projeto.
 
 ## Limitações conhecidas / trade-offs em aberto
 
+### O time não conseguia se auto-validar (encontrado no build do fe-catolica)
+
+Depois do primeiro build real, uma revisão manual (Claude Code, sem API)
+achou um bug de tipo genuíno (`apiGet<T>` com `ZodType<T>` quebrando a
+inferência com schemas `.default()`) e uma dependência com 3 CVEs
+críticas (`next@14.2.5`) — nenhum dos dois pego pelo `dev_frontend`
+sozinho.
+
+**Causa raiz**: a tarefa proibia "comandos de instalação", regra
+copiada sem revisão dos scripts de TESTE rápido (onde faz sentido manter
+o loop curto) pros scripts de build REAL. Sem `npm install`, o
+`dev_frontend` nunca teve `node_modules` pra rodar `tsc`/`eslint`/
+`vitest`/`build` sobre o próprio trabalho — o equivalente a proibir o
+`dev_backend` de rodar `pytest`. Isso não é o modelo sendo fraco: é a
+tarefa não dar a ferramenta pra ele se checar.
+
+O que já foi corrigido: `run_command` tinha timeout de 60s (curto demais
+pra instalar dependência de verdade — um `npm install` real levou ~2min),
+subiu pra 180s.
+
+O que ainda falta (ver PROGRESS.md pro detalhe):
+- Tarefas de build real precisam PERMITIR e EXIGIR auto-validação
+  (instalar, typecheck/lint/teste/build, só então "concluído").
+- `standards/backend.md`/`standards/frontend.md` não pedem checagem de
+  dependência vulnerável (`pip-audit`/`npm audit`) como critério de
+  pronto.
+- Falta um papel de revisão/QA no Supervisor — os repos reais auditados
+  têm isso explícito (`quality-reviewer`/`qa-engineer`, até "zero
+  achados"); um agente revisando o PRÓPRIO trabalho pega menos erro que
+  um segundo papel dedicado a isso.
+
+### Outras
+
 - `search_standards` e a persona "cheia" convivem sem necessidade real
-  hoje — redundância aceita até haver crédito pra validar uma migração.
+  hoje — redundância aceita até haver disposição pra validar uma migração.
 - BM25 não generaliza bem pra pergunta em linguagem muito diferente do
   vocabulário do documento (paráfrase forte) — funciona porque nossos
   `.md` usam termos técnicos exatos que o usuário também tende a usar.
 - O histórico do Supervisor (`history: list[str]`) cresce sem limite
-  dentro de `MAX_ROUNDS` — não é problema no teto atual (6), mas não tem
-  trim/resumo se um dia o teto subir.
-- Nenhuma parte do sistema foi validada ponta a ponta com os padrões mais
-  recentes (backend rigoroso + `ArchitecturePlan` + Next.js +
-  `DesignPlan` + `search_standards` juntos) — bloqueado por crédito de
-  API, ver PROGRESS.md.
+  dentro de `MAX_ROUNDS` — não dá pra recuperar de uma queda de rede no
+  meio (ver o incidente real do fe-catolica, PROGRESS.md); um resume
+  automático precisaria persistir esse histórico em disco a cada rodada.

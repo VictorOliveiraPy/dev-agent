@@ -14,6 +14,49 @@ conta da Anthropic ficou sem crédito no meio do dia 02 — por isso o dia
 03 foi todo em coisas que não custam API. Ver também ARCHITECTURE.md,
 que documenta as decisões e o porquê de cada uma.
 
+## ⚠️ Achado importante: o time não conseguia se auto-validar
+
+Depois do build real do fe-catolica, revisei o frontend manualmente (via
+Claude Code, sem gastar API — só `node`/`npm` locais) e achei: **um bug
+de tipo real** (`apiGet<T>` com `ZodType<T>` quebrando a inferência com
+schemas `.default()` — erro `tsc` genuíno) e **uma dependência com 3 CVEs
+críticas** (`next@14.2.5`). Nenhum dos dois foi pego pelo time sozinho.
+
+**Causa raiz, não é o modelo ser fraco**: a tarefa (`build_fe_catolica.py`
+e `resume_fe_catolica_frontend.py`) instruía explicitamente "não rode
+comandos de instalação" — regra copiada sem questionar dos scripts de
+teste RÁPIDOS (`main.py`, `dev_backend_agent.py`), onde fazia sentido
+manter os loops curtos. Só que sem `npm install`, o `dev_frontend` NUNCA
+teve `node_modules` — logo nunca pôde rodar `tsc`/`eslint`/`vitest`/
+`build` para conferir o próprio trabalho. É o equivalente a proibir o
+`dev_backend` de rodar `pytest`.
+
+### O que precisa mudar (concreto)
+
+1. ✅ **Feito**: `run_command` tinha timeout de 60s — curto demais pra
+   instalar dependência de verdade (`npm install` real levou ~2min).
+   Subiu pra 180s (`agents/tools.py`).
+2. **Pendente**: instruções de tarefa pra builds de projeto REAL (não os
+   scripts de teste rápido) precisam PERMITIR e EXIGIR auto-validação —
+   instalar dependência, rodar typecheck/lint/teste/build, e só then
+   reportar "concluído". Hoje isso não está em nenhum `standards/*.md`
+   nem nas tarefas dos scripts de build real.
+3. **Pendente**: `standards/backend.md` e `standards/frontend.md` não
+   pedem checagem de dependência vulnerável (`pip-audit`/`npm audit`)
+   como parte de "antes de considerar pronto" — nenhum dos dois hoje.
+4. **Pendente, maior**: considerar um papel de revisão/QA no loop do
+   Supervisor. Os repos reais que auditamos (`melhorperfil-api/web`,
+   `santo-guardiao-api/web`) têm `quality-reviewer`/`qa-engineer`
+   explícitos, rodando até "zero achados" — nosso Supervisor vai
+   `arquiteto → dev_backend → dev_frontend → concluido` sem NINGUÉM
+   conferir o resultado final de ponta a ponta. Isso é o motivo
+   estrutural de fundo: mesmo com auto-validação (item 2), um agente
+   revisando o PRÓPRIO trabalho tem menos poder de pegar erro do que um
+   segundo papel dedicado a isso.
+
+Ver ARCHITECTURE.md, seção "Limitações conhecidas", pro registro
+completo desta decisão.
+
 **🎉 PRIMEIRO PROJETO REAL RODOU — `fe-catolica`, em 2026-09-03.** O
 usuário recarregou a conta e mandou rodar. Resultado: backend FastAPI
 completo (8 categorias, 25 testes passando) + frontend Next.js quase
@@ -252,9 +295,11 @@ com o usuário em 2026-09-03:
 
 ## Pendências / próximos passos possíveis
 
-1. **Validar o frontend do fe-catolica rodando de verdade**
-   (`npm install && npm run build && npm test`) numa máquina com Node —
-   não verificado nesta sessão.
+1. ✅ **Validar o frontend do fe-catolica rodando de verdade** — feito
+   nesta sessão via Claude Code (node/npm reais, zero custo de API):
+   achou e corrigiu um bug de tipo real e uma dependência com CVEs
+   críticas. Ver seção "Achado importante" acima — isso virou 4 itens de
+   melhoria pro dev-agent, não só uma checagem pontual.
 2. **Revisar o conteúdo gerado com olho crítico antes de considerar
    "pronto"** — mesmo com a mitigação na tarefa, fatos religiosos/
    históricos gerados por LLM merecem checagem humana antes de virar

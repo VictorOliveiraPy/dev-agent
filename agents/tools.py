@@ -87,10 +87,13 @@ def list_dir(path: str = ".") -> str:
 
 @tool
 def run_command(command: str) -> str:
-    """Executa um comando de shell dentro do workspace (ex: 'python -m py_compile arquivo.py').
+    """Executa um comando de shell dentro do workspace (ex: 'npm install',
+    'npm run build', 'python -m pytest').
 
-    Tem timeout de 60s e roda sempre com cwd fixo na sandbox — não é
-    possível "cd" para fora dela.
+    Tem timeout de 180s (dá pra instalar dependência de verdade — um
+    `npm install` real chegou a levar ~2min num teste; 60s cortava isso
+    no meio) e roda sempre com cwd fixo na sandbox — não é possível "cd"
+    para fora dela.
 
     Args:
         command: comando de shell completo a executar.
@@ -102,11 +105,11 @@ def run_command(command: str) -> str:
             cwd=WORKSPACE,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=180,
         )
         output = result.stdout + result.stderr
         if not output:
             return f"(sem saída, código de retorno {result.returncode})"
         return output[-4000:]
     except subprocess.TimeoutExpired:
-        return "ERRO: comando excedeu 60s e foi interrompido."
+        return "ERRO: comando excedeu 180s e foi interrompido."
