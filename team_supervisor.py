@@ -2,10 +2,16 @@
 em vez de eu escolher manualmente (como nos Passos 2 e 3).
 """
 
-from agentes.supervisor import executar
+import logging
+
+from agentes.supervisor import run
 
 if __name__ == "__main__":
-    historico = executar(
+    # Habilita o logging estruturado do supervisor (ver agentes/supervisor.py)
+    # neste terminal — sem isso as decisões de roteamento ficam invisíveis.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    history = run(
         "Crie uma feature simples de 'lista de favoritos': endpoint no "
         "backend para adicionar, listar e remover um item por id (guardado "
         "em memória) e uma tela no frontend em React que lista os favoritos "
@@ -14,5 +20,5 @@ if __name__ == "__main__":
     )
 
     print("\n\n=== HISTÓRICO COMPLETO ===")
-    for entrada in historico:
-        print(f"\n{entrada}")
+    for entry in history:
+        print(f"\n{entry}")

@@ -1,4 +1,4 @@
-"""Passo 1 do time de tecnologia: o mesmo pedido visto por papéis
+"""Passo 1 do time de tecnologia: a mesma tarefa vista por papéis
 diferentes, cada um respondendo sob sua especialidade.
 
 Ainda não há orquestração (ninguém decide "quem fala primeiro" ou passa
@@ -7,16 +7,16 @@ os próximos passos. Aqui validamos só a fundação: fábrica de modelo +
 personas.
 """
 
-from agentes.equipe import PAPEIS, criar_agente
+from agentes.team import ROLES, create_agent
 
 
-def demo(pedido: str) -> None:
-    """Envia o mesmo pedido para cada papel do time e imprime as respostas."""
-    for papel in PAPEIS:
-        agente = criar_agente(papel)
-        resposta = agente.invoke({"pedido": pedido})
-        print(f"\n=== {papel.upper()} ===")
-        print(resposta)
+def demo(task: str) -> None:
+    """Envia a mesma tarefa para cada papel do time e imprime as respostas."""
+    for role in ROLES:
+        agent = create_agent(role)
+        response = agent.invoke({"task": task})
+        print(f"\n=== {role.upper()} ===")
+        print(response)
 
 
 if __name__ == "__main__":

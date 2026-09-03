@@ -3,105 +3,119 @@
 Diferente dos Passos 2 e 3 (onde a escolha de qual agente chamar era manual,
 no código Python), aqui quem decide é o próprio LLM, através de um
 roteador com saída estruturada (ver Structured Output). O supervisor não
-escreve código — ele só orquestra: lê o pedido original + o que já foi
+escreve código — ele só orquestra: lê a tarefa original + o que já foi
 feito, decide o PRÓXIMO especialista a agir (ou que o trabalho terminou),
 aciona esse especialista, registra o resultado, e repete. É o núcleo de um
 sistema multi-agente: um "gerente" que delega, sem conhecer os detalhes de
 implementação de cada área.
 """
 
+import logging
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from agentes.equipe import criar_agente, criar_agente_com_ferramentas
 from agentes.llm import build_chat_model
+from agentes.team import create_agent, create_agent_with_tools
 from agentes.tools import list_dir, read_file, run_command, write_file
 
-TOOLS_PADRAO = [write_file, read_file, list_dir, run_command]
+logger = logging.getLogger(__name__)
+
+DEFAULT_TOOLS = [write_file, read_file, list_dir, run_command]
 
 # Só quem produz artefatos (código) precisa de tools; o arquiteto só opina.
-PAPEIS_COM_FERRAMENTAS = {"dev_backend", "dev_frontend"}
+ROLES_WITH_TOOLS = {"dev_backend", "dev_frontend"}
 
-MAX_RODADAS = 6
+MAX_ROUNDS = 6
 
 
-class Decisao(BaseModel):
+class Decision(BaseModel):
     """Decisão do supervisor sobre o próximo passo do time."""
 
-    proximo: Literal["arquiteto", "dev_backend", "dev_frontend", "concluido"] = Field(
-        description="Qual papel deve agir agora, ou 'concluido' se o pedido já foi atendido."
+    next_role: Literal["arquiteto", "dev_backend", "dev_frontend", "concluido"] = Field(
+        description="Qual papel deve agir agora, ou 'concluido' se a tarefa já foi atendida."
     )
-    instrucao: str = Field(
+    instruction: str = Field(
         description=(
             "Instrução específica e objetiva para esse papel executar agora "
-            "(ignorado se proximo == 'concluido')."
+            "(ignorado se next_role == 'concluido')."
         )
     )
-    justificativa: str = Field(description="Por que essa é a próxima ação certa, em 1 frase.")
+    reasoning: str = Field(description="Por que essa é a próxima ação certa, em 1 frase.")
 
 
-_ROTEADOR_PROMPT = ChatPromptTemplate.from_messages([
+_ROUTER_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "Você é o Tech Lead que orquestra um time (arquiteto, dev_backend, "
-        "dev_frontend). Dado o pedido original e o histórico do que já foi "
+        "dev_frontend). Dada a tarefa original e o histórico do que já foi "
         "feito, decida a PRÓXIMA ação. Regra geral: o arquiteto decide a "
         "forma antes do backend implementar, e o backend expõe a API antes "
         "do frontend consumi-la — mas pule etapas óbvias se o histórico "
-        "mostrar que já foram cobertas. Só retorne 'concluido' quando o "
-        "pedido estiver de fato IMPLEMENTADO (código escrito de verdade), "
-        "nunca apenas planejado ou parcialmente feito.",
+        "mostrar que já foram cobertas. Só retorne 'concluido' quando a "
+        "tarefa estiver de fato IMPLEMENTADA (código escrito de verdade), "
+        "nunca apenas planejada ou parcialmente feita.",
     ),
     (
         "human",
-        "PEDIDO ORIGINAL:\n{pedido}\n\nHISTÓRICO DO QUE JÁ FOI FEITO:\n{historico}",
+        "TAREFA ORIGINAL:\n{task}\n\nHISTÓRICO DO QUE JÁ FOI FEITO:\n{history}",
     ),
 ])
 
 # O roteador usa saída estruturada (Aula 03 do projeto de estudo) para que
 # o "próximo passo" seja um objeto validado, não texto livre pra fazer
 # parsing na mão.
-_roteador = _ROTEADOR_PROMPT | build_chat_model(max_tokens=2048).with_structured_output(Decisao)
+_router = _ROUTER_PROMPT | build_chat_model(max_tokens=2048).with_structured_output(Decision)
 
 
-def executar(pedido: str) -> list[str]:
-    """Roda o loop supervisor -> especialista até o pedido ser concluído.
+def run(task: str) -> list[str]:
+    """Roda o loop supervisor -> especialista até a tarefa ser concluída.
 
     Args:
-        pedido: descrição do que o time deve entregar.
+        task: descrição do que o time deve entregar.
 
     Returns:
         O histórico de ações executadas (uma entrada por rodada), na ordem
         em que aconteceram.
     """
-    historico: list[str] = []
+    history: list[str] = []
 
-    for rodada in range(1, MAX_RODADAS + 1):
-        texto_historico = "\n".join(historico) if historico else "(nada feito ainda)"
-        decisao = _roteador.invoke({"pedido": pedido, "historico": texto_historico})
+    for round_num in range(1, MAX_ROUNDS + 1):
+        history_text = "\n".join(history) if history else "(nada feito ainda)"
+        decision = _router.invoke({"task": task, "history": history_text})
 
-        print(f"\n--- Rodada {rodada}: supervisor escolheu '{decisao.proximo}' ---")
-        print(f"Justificativa: {decisao.justificativa}")
+        logger.info(
+            "Supervisor escolheu o próximo papel",
+            extra={
+                "round": round_num,
+                "next_role": decision.next_role,
+                "reasoning": decision.reasoning,
+            },
+        )
 
-        if decisao.proximo == "concluido":
-            historico.append("[supervisor] Deu o pedido como concluído.")
+        if decision.next_role == "concluido":
+            history.append("[supervisor] Deu a tarefa como concluída.")
             break
 
-        if decisao.proximo in PAPEIS_COM_FERRAMENTAS:
-            agente = criar_agente_com_ferramentas(decisao.proximo, TOOLS_PADRAO)
-            resultado = agente.invoke({"pedido": decisao.instrucao})
-            saida = resultado["output"]
-            if isinstance(saida, list):
-                saida = "".join(b.get("text", "") for b in saida if b.get("type") == "text")
+        if decision.next_role in ROLES_WITH_TOOLS:
+            agent = create_agent_with_tools(decision.next_role, DEFAULT_TOOLS)
+            result = agent.invoke({"task": decision.instruction})
+            output_text = result["output"]
+            if isinstance(output_text, list):
+                output_text = "".join(
+                    b.get("text", "") for b in output_text if b.get("type") == "text"
+                )
         else:
-            agente = criar_agente(decisao.proximo)
-            saida = agente.invoke({"pedido": decisao.instrucao})
+            agent = create_agent(decision.next_role)
+            output_text = agent.invoke({"task": decision.instruction})
 
-        resumo = f"[{decisao.proximo}] instrução: {decisao.instrucao}\nresultado: {saida[:500]}"
-        historico.append(resumo)
+        summary = (
+            f"[{decision.next_role}] instrução: {decision.instruction}\n"
+            f"resultado: {output_text[:500]}"
+        )
+        history.append(summary)
     else:
-        historico.append(f"[supervisor] Parou por atingir o limite de {MAX_RODADAS} rodadas.")
+        history.append(f"[supervisor] Parou por atingir o limite de {MAX_ROUNDS} rodadas.")
 
-    return historico
+    return history

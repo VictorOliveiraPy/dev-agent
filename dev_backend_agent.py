@@ -3,27 +3,27 @@ verdade — escreve arquivos dentro do workspace/ do projeto, em vez de só
 descrever o que faria (como no Passo 1, em main.py).
 """
 
-from agentes.equipe import criar_agente_com_ferramentas
+from agentes.team import create_agent_with_tools
 from agentes.tools import list_dir, read_file, run_command, write_file
 
-TOOLS_DEV_BACKEND = [write_file, read_file, list_dir, run_command]
+BACKEND_TOOLS = [write_file, read_file, list_dir, run_command]
 
 
-def demo(pedido: str) -> str:
-    """Executa o Dev Backend (com tools) sobre um pedido em linguagem natural."""
-    agente = criar_agente_com_ferramentas("dev_backend", TOOLS_DEV_BACKEND)
-    resultado = agente.invoke({"pedido": pedido})
-    saida = resultado["output"]
+def demo(task: str) -> str:
+    """Executa o Dev Backend (com tools) sobre uma tarefa em linguagem natural."""
+    agent = create_agent_with_tools("dev_backend", BACKEND_TOOLS)
+    result = agent.invoke({"task": task})
+    output_text = result["output"]
 
     # A última mensagem do modelo pode vir como lista de content blocks
     # (thinking + texto) em vez de string pronta — normalizamos aqui.
-    if isinstance(saida, list):
-        saida = "".join(b.get("text", "") for b in saida if b.get("type") == "text")
-    return saida
+    if isinstance(output_text, list):
+        output_text = "".join(b.get("text", "") for b in output_text if b.get("type") == "text")
+    return output_text
 
 
 if __name__ == "__main__":
-    saida = demo(
+    output_text = demo(
         "Crie o backend FastAPI de uma feature de login (email + senha): "
         "endpoints POST /auth/register, POST /auth/login (retornando um "
         "token fake por enquanto) e GET /auth/me. Guarde usuários em "
@@ -32,4 +32,4 @@ if __name__ == "__main__":
         "instalação, apenas escreva os arquivos."
     )
     print("\n=== RESPOSTA FINAL DO DEV_BACKEND ===")
-    print(saida)
+    print(output_text)

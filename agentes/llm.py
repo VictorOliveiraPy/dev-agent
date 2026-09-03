@@ -13,10 +13,10 @@ from langchain_anthropic import ChatAnthropic
 
 load_dotenv()
 
-_MODELO_PADRAO = "claude-opus-5"
+_DEFAULT_MODEL = "claude-opus-5"
 
 
-def build_chat_model(max_tokens: int = 8192, model: str = _MODELO_PADRAO) -> ChatAnthropic:
+def build_chat_model(max_tokens: int = 8192, model: str = _DEFAULT_MODEL) -> ChatAnthropic:
     """Cria uma instância configurada do modelo Claude.
 
     Args:

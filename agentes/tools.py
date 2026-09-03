@@ -19,77 +19,77 @@ WORKSPACE = (Path(__file__).parent.parent / "workspace").resolve()
 WORKSPACE.mkdir(exist_ok=True)
 
 
-def _caminho_seguro(caminho_relativo: str) -> Path:
+def _safe_path(relative_path: str) -> Path:
     """Resolve um caminho relativo à sandbox e bloqueia path traversal."""
-    destino = (WORKSPACE / caminho_relativo).resolve()
-    if not destino.is_relative_to(WORKSPACE):
-        raise ValueError(f"Caminho fora da sandbox permitida: {caminho_relativo}")
-    return destino
+    target = (WORKSPACE / relative_path).resolve()
+    if not target.is_relative_to(WORKSPACE):
+        raise ValueError(f"Caminho fora da sandbox permitida: {relative_path}")
+    return target
 
 
 @tool
-def write_file(caminho: str, conteudo: str) -> str:
+def write_file(path: str, content: str) -> str:
     """Cria ou sobrescreve um arquivo dentro do workspace do projeto.
 
     Args:
-        caminho: caminho relativo ao workspace, ex: 'backend/main.py'.
-        conteudo: conteúdo completo a ser escrito no arquivo.
+        path: caminho relativo ao workspace, ex: 'backend/main.py'.
+        content: conteúdo completo a ser escrito no arquivo.
     """
-    destino = _caminho_seguro(caminho)
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_text(conteudo, encoding="utf-8")
-    return f"Arquivo escrito: {caminho} ({len(conteudo)} chars)"
+    target = _safe_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return f"Arquivo escrito: {path} ({len(content)} chars)"
 
 
 @tool
-def read_file(caminho: str) -> str:
+def read_file(path: str) -> str:
     """Lê e devolve o conteúdo de um arquivo do workspace do projeto.
 
     Args:
-        caminho: caminho relativo ao workspace.
+        path: caminho relativo ao workspace.
     """
-    destino = _caminho_seguro(caminho)
-    if not destino.exists():
-        return f"ERRO: arquivo não existe: {caminho}"
-    return destino.read_text(encoding="utf-8")
+    target = _safe_path(path)
+    if not target.exists():
+        return f"ERRO: arquivo não existe: {path}"
+    return target.read_text(encoding="utf-8")
 
 
 @tool
-def list_dir(caminho: str = ".") -> str:
+def list_dir(path: str = ".") -> str:
     """Lista arquivos e pastas dentro de um diretório do workspace.
 
     Args:
-        caminho: caminho relativo ao workspace (default: raiz do workspace).
+        path: caminho relativo ao workspace (default: raiz do workspace).
     """
-    destino = _caminho_seguro(caminho)
-    if not destino.exists():
-        return f"ERRO: diretório não existe: {caminho}"
-    itens = sorted(p.relative_to(WORKSPACE).as_posix() for p in destino.rglob("*"))
-    return "\n".join(itens) if itens else "(vazio)"
+    target = _safe_path(path)
+    if not target.exists():
+        return f"ERRO: diretório não existe: {path}"
+    items = sorted(p.relative_to(WORKSPACE).as_posix() for p in target.rglob("*"))
+    return "\n".join(items) if items else "(vazio)"
 
 
 @tool
-def run_command(comando: str) -> str:
+def run_command(command: str) -> str:
     """Executa um comando de shell dentro do workspace (ex: 'python -m py_compile arquivo.py').
 
     Tem timeout de 60s e roda sempre com cwd fixo na sandbox — não é
     possível "cd" para fora dela.
 
     Args:
-        comando: comando de shell completo a executar.
+        command: comando de shell completo a executar.
     """
     try:
-        resultado = subprocess.run(
-            comando,
+        result = subprocess.run(
+            command,
             shell=True,
             cwd=WORKSPACE,
             capture_output=True,
             text=True,
             timeout=60,
         )
-        saida = resultado.stdout + resultado.stderr
-        if not saida:
-            return f"(sem saída, código de retorno {resultado.returncode})"
-        return saida[-4000:]
+        output = result.stdout + result.stderr
+        if not output:
+            return f"(sem saída, código de retorno {result.returncode})"
+        return output[-4000:]
     except subprocess.TimeoutExpired:
         return "ERRO: comando excedeu 60s e foi interrompido."

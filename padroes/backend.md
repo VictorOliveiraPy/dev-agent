@@ -1,32 +1,33 @@
-# Padrões de backend (destilados de projetos reais em produção)
+# Backend Standards
 
-Baseado em auditoria de dois backends FastAPI reais do autor —
-`melhorperfil-api` (processa pagamento via Pix) e `santo-guardiao-api` —
-não é opinião genérica de internet. Persona: engenheiro sênior + auditor
-de segurança. Trate qualquer bug de validação/autorização/dinheiro como
-incidente de segurança, não como bug comum.
+> Distilled from two real FastAPI backends in production — `melhorperfil-api`
+> (processes real payments via Pix) and `santo-guardiao-api` — not generic
+> internet opinion. Mindset: senior engineer + security auditor. Treat any
+> validation/authorization/money bug as a security incident, not a regular bug.
 
-## Arquitetura em camadas — sempre as mesmas responsabilidades
+---
 
-- `app/core/` — config (`config.py`), banco (`database.py`), segurança/JWT
-  (`security.py`), exceções (`exceptions.py` + `exception_handlers.py`),
-  logging (`logging.py`), rate limit, middlewares.
-- `app/models/` — um arquivo por domínio (SQLAlchemy).
-- `app/schemas/` — Pydantic, espelha os models (request/response).
-- `app/routers/` — rotas FINAS: parse de entrada, chamada ao service,
-  serialização de saída. Nenhuma regra de negócio, nenhum SQL direto.
-- `app/services/` — toda regra de negócio mora aqui. É o que se testa
-  unitariamente com banco fake, sem subir a API inteira.
-- `app/routers/deps.py` — dependências reutilizáveis de auth/autorização
-  via `Depends` (ex: `get_current_user`, `get_current_admin_user`).
+## 🏗️ Layered architecture
 
-Nunca: lógica de negócio na rota, SQL espalhado, `except Exception`
-genérico sem contexto, hardcode de valor de negócio (isso é `Settings`).
+Same responsibilities, every time:
 
-## Configuração — `pydantic-settings`, nunca `os.getenv` espalhado pelo código
+| Layer | Responsibility |
+|---|---|
+| `app/core/` | config (`config.py`), database (`database.py`), auth/JWT (`security.py`), exceptions (`exceptions.py` + `exception_handlers.py`), logging (`logging.py`), rate limiting, middlewares |
+| `app/models/` | one file per domain (SQLAlchemy) |
+| `app/schemas/` | Pydantic, mirrors the models (request/response) |
+| `app/routers/` | **thin** routes: parse input, call the service, serialize output. No business logic, no direct SQL |
+| `app/services/` | all business logic lives here — this is what gets unit-tested with a fake DB |
+| `app/routers/deps.py` | reusable auth/authorization dependencies via `Depends` (e.g. `get_current_user`) |
 
-Um único `Settings(BaseSettings)` em `app/core/config.py`, com `lru_cache`
-no getter (singleton, lido uma vez):
+> **Never:** business logic in a route, SQL scattered around, a bare
+> `except Exception` with no context, hardcoded business values (that's what
+> `Settings` is for).
+
+## ⚙️ Configuration — `pydantic-settings`, never scattered `os.getenv`
+
+A single `Settings(BaseSettings)` in `app/core/config.py`, `lru_cache`d getter
+(singleton, read once):
 
 ```python
 @lru_cache
@@ -36,21 +37,22 @@ def get_settings() -> Settings:
 settings = get_settings()
 ```
 
-- `@model_validator(mode="after")` para invariantes de segurança que só
-  valem em produção — o **boot falha** (`raise ValueError`) se `DEBUG=True`
-  em produção, `SECRET_KEY` for um placeholder ou tiver menos de 32
-  caracteres, ou `CORS_ORIGINS` tiver wildcard em produção. Falhar no boot
-  é sempre preferível a subir inseguro.
-- `@field_validator("*", mode="before")` normaliza valores vindos do
-  `.env` (string vazia -> `None`, `"true"/"1"/"yes"` -> `bool`) — evita bug
-  de comparar string `"False"` com `bool` e ela dar `True` por engano.
-- Feature opcional (Redis, Sentry) desliga sozinha se a dependência não
-  estiver configurada, em vez de quebrar o boot inteiro por causa dela.
+- `@model_validator(mode="after")` for security invariants that only apply
+  in production — **boot fails** (`raise ValueError`) if `DEBUG=True` in
+  prod, `SECRET_KEY` is a placeholder or under 32 characters, or
+  `CORS_ORIGINS` has a wildcard in production. Failing at boot is always
+  better than running insecure.
+- `@field_validator("*", mode="before")` normalizes values coming from
+  `.env` (empty string → `None`, `"true"/"1"/"yes"` → `bool`) — avoids the
+  classic bug of comparing the string `"False"` to a `bool` and getting
+  `True` by accident.
+- An optional feature (Redis, Sentry) turns itself off when its dependency
+  isn't configured, instead of crashing the whole boot over it.
 
-## Erros — exceção de domínio tipada, nunca `HTTPException` espalhada pelo service
+## 🧨 Errors — typed domain exceptions, never `HTTPException` scattered in services
 
-Hierarquia própria em `app/core/exceptions.py`; cada uma já carrega
-`status_code` + `code` (string estável — contrato com o frontend) +
+A dedicated hierarchy in `app/core/exceptions.py`; each one already carries
+`status_code` + `code` (a stable string — the contract with the frontend) +
 `details`:
 
 ```python
@@ -64,65 +66,69 @@ class NotFoundException(AppException):
         super().__init__(message, status_code=404, code="NOT_FOUND", details=details)
 ```
 
-Um `exception_handlers.py` central converte isso em resposta HTTP — o
-`service` levanta `NotFoundException`, nunca monta `HTTPException` no meio
-da regra de negócio. Mensagem é UX (pode mudar à vontade); `code` é
-contrato (o frontend decide comportamento por ele — não muda sem
-avisar quem consome).
+A central `exception_handlers.py` converts this into an HTTP response — the
+`service` raises `NotFoundException`, never builds an `HTTPException` in the
+middle of business logic. The message is UX (free to change); `code` is a
+contract (the frontend branches on it — don't change it without notice).
 
-## Segurança — inegociável
+## 🔒 Security — non-negotiable
 
-- **IDOR é o erro nº 1 a evitar.** Toda query que busca um recurso do
-  usuário filtra pelo dono NA MESMA query — nunca busca por id e checa
-  dono depois:
+- **IDOR is enemy #1.** Every query that fetches a user's resource filters
+  by owner **in the same query** — never fetch by id and check ownership
+  afterward:
+
   ```python
-  # inseguro — qualquer usuário autenticado acessa o item de qualquer outro
+  # insecure — any authenticated user can reach anyone else's item
   item = session.get(Item, item_id)
 
-  # correto — o filtro de posse faz parte da query, não é um "if" depois
+  # correct — the ownership filter is part of the query, not an "if" after
   item = session.query(Item).filter(
       Item.id == item_id, Item.user_id == current_user.id,
   ).first()
   ```
-- **JWT**: validar `exp`, `iat`, `sub` sempre; rejeitar token com
-  `alg=none`; refresh token com rotação — se um token já rotacionado
-  reaparecer, isso é sinal de roubo: invalida a família inteira de sessões
-  daquele usuário, não só aquele token.
-- **Comparação de segredo é sempre em tempo constante**:
-  `secrets.compare_digest(a, b)`, nunca `a == b` (evita timing attack) —
-  vale pra qualquer header/token de borda comparado no servidor.
-- **Fail-closed sempre**: qualquer validação de segurança com resultado
-  ambíguo (erro ao verificar assinatura, timeout numa checagem externa)
-  REJEITA a request. Nunca deixa passar por omissão/exceção não tratada.
-- **CORS**: nunca `allow_origins=["*"]` combinado com
-  `allow_credentials=True`; em produção, lista explícita de origens, sem
-  wildcard.
-- **Idempotência em webhook**: o mesmo evento não pode ser processado duas
-  vezes nem gerar duplicidade — registrar o id do evento já processado e
-  checar antes de agir, não confiar que o provedor só manda uma vez.
-- **Dinheiro é inteiro (centavos), nunca float.** Concorrência em
-  atualização de saldo/lance/estoque: update atômico condicional no banco
-  (`UPDATE ... WHERE valor_atual < :novo_valor`) ou
-  `SELECT ... FOR UPDATE` — nunca ler, calcular em Python e escrever de
-  volta em passos separados sem lock (race condition clássica).
 
-## Logging — estruturado, nunca f-string, nunca dado sensível
+- **JWT**: always validate `exp`, `iat`, `sub`; reject tokens with
+  `alg=none`; rotate refresh tokens — if an already-rotated token reappears,
+  that's a theft signal: invalidate the user's **entire session family**,
+  not just that token.
+- **Secret comparison is always constant-time**: `secrets.compare_digest(a, b)`,
+  never `a == b` (avoids timing attacks) — applies to any edge header/token
+  compared server-side.
+- **Fail closed, always.** Any security check with an ambiguous result
+  (signature verification error, timeout on an external check) **rejects**
+  the request. Never let it through by omission or an unhandled exception.
+- **CORS**: never `allow_origins=["*"]` combined with `allow_credentials=True`;
+  in production, an explicit origin list, no wildcard.
+- **Webhook idempotency**: the same event must not be processed twice or
+  create a duplicate — record the processed event id and check it before
+  acting, don't trust the provider to only send it once.
+- **Money is an integer (cents), never a float.** Concurrency on
+  balance/bid/stock updates: an atomic conditional update in the database
+  (`UPDATE ... WHERE current_value < :new_value`) or `SELECT ... FOR UPDATE`
+  — never read, compute in Python, and write back in separate steps without
+  a lock (a classic race condition).
+
+## 📋 Logging — structured, never an f-string, never sensitive data
 
 ```python
-logger.info("Usuário autenticado", extra={"user_id": user.id})  # certo
-logger.info(f"Usuário {user.id} autenticado")                    # errado
+logger.info("Usuário autenticado", extra={"user_id": user.id})  # ✅ correct
+logger.info(f"Usuário {user.id} autenticado")                    # ❌ wrong
 ```
 
-O `extra={...}` mantém o dado pesquisável/filtrável em produção; f-string
-vira texto solto, perde estrutura. Nunca logar: senha, token/JWT completo,
-CPF, header `Authorization`, payload cru de webhook com dado de pagamento.
+`extra={...}` keeps the field searchable/filterable in production; an
+f-string turns into loose text and loses structure. Never log: passwords,
+full tokens/JWTs, national ID numbers, the `Authorization` header, raw
+webhook payloads with payment data.
 
-## Testes — TDD, nome descreve comportamento, não implementação
+> Log message text stays in Portuguese (see [general.md](general.md)) — it's
+> human-facing text, not a code identifier.
 
-Convenção obrigatória de nome:
+## ✅ Testing — TDD, name describes behavior, not implementation
+
+Mandatory naming convention:
 
 ```
-test_should_{o_que}_when_{causa}
+test_should_{what}_when_{cause}
 ```
 
 ```python
@@ -131,17 +137,17 @@ def test_should_charge_only_difference_when_owner_reinforces_bid(): ...
 def test_should_return_403_when_user_accesses_resource_from_another_user(): ...
 ```
 
-- Escreva o teste ANTES do código (red -> green -> refactor). Código de
-  produção sem teste que o precedeu não é aceito — o teste guia a
-  implementação, não é conferido depois.
-- Corpo do teste em Given/When/Then (comentário), com docstring de uma
-  linha objetiva (não repete o nome da função por extenso).
-- Separe unitário (`tests/services/`, `tests/core/` — regra de negócio
-  isolada, banco fake, sem I/O real) de integração (`tests/routers/`,
-  `TestClient` real, banco de teste, fluxo ponta a ponta).
-- Cobertura mínima: `fail_under = 70` em `[tool.coverage.report]`.
+- Write the test **before** the code (red → green → refactor). Production
+  code without a test that preceded it is not accepted — the test drives
+  the implementation, it isn't checked off afterward.
+- Test body in Given/When/Then (comment), with a one-line, to-the-point
+  docstring (not a restatement of the function name in prose).
+- Separate unit tests (`tests/services/`, `tests/core/` — isolated business
+  logic, fake DB, no real I/O) from integration tests (`tests/routers/`,
+  real `TestClient`, test database, end-to-end flow).
+- Minimum coverage: `fail_under = 70` in `[tool.coverage.report]`.
 
-## Ferramentas — config de referência (`pyproject.toml`)
+## 🛠️ Tooling — reference config (`pyproject.toml`)
 
 ```toml
 [tool.ruff]
@@ -163,5 +169,5 @@ asyncio_mode = "auto"
 fail_under = 70
 ```
 
-Comandos: `ruff check app tests` · `mypy app` · `pytest -q --cov` ·
+**Commands:** `ruff check app tests` · `mypy app` · `pytest -q --cov` ·
 `uvicorn app.main:app --reload`
