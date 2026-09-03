@@ -1,5 +1,7 @@
 # dev-agent
 
+[![CI](https://github.com/VictorOliveiraPy/dev-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorOliveiraPy/dev-agent/actions/workflows/ci.yml)
+
 Time de agentes de IA construído com LangChain + Claude, capaz de projetar e
 implementar projetos (Python + React) de ponta a ponta — arquitetura,
 backend, frontend — sozinho ou orquestrado por um Supervisor.
