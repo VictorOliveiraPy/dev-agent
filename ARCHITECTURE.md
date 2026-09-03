@@ -255,20 +255,26 @@ o loop curto) pros scripts de build REAL. Sem `npm install`, o
 `dev_backend` de rodar `pytest`. Isso não é o modelo sendo fraco: é a
 tarefa não dar a ferramenta pra ele se checar.
 
-O que já foi corrigido: `run_command` tinha timeout de 60s (curto demais
-pra instalar dependência de verdade — um `npm install` real levou ~2min),
-subiu pra 180s.
+**Corrigido:**
+- `run_command` tinha timeout de 60s (curto demais pra instalar
+  dependência de verdade — um `npm install` real levou ~2min), subiu
+  pra 180s.
+- **Auto-validação virou regra permanente da persona, não instrução de
+  uma tarefa**: `standards/general.md` ganhou uma seção obrigatória
+  (instalar → typecheck/lint/teste/build → `pip-audit`/`npm audit` → só
+  então "concluído"), com os comandos exatos em `backend.md`/
+  `frontend.md`. Colocar isso no `.md` de padrões — não no texto da
+  tarefa — significa que vale pra QUALQUER build futuro automaticamente,
+  sem precisar lembrar de repetir a instrução. A proibição antiga de
+  instalar foi removida dos scripts do fe-catolica (ficaria contraditória
+  com o padrão novo).
 
-O que ainda falta (ver PROGRESS.md pro detalhe):
-- Tarefas de build real precisam PERMITIR e EXIGIR auto-validação
-  (instalar, typecheck/lint/teste/build, só então "concluído").
-- `standards/backend.md`/`standards/frontend.md` não pedem checagem de
-  dependência vulnerável (`pip-audit`/`npm audit`) como critério de
-  pronto.
-- Falta um papel de revisão/QA no Supervisor — os repos reais auditados
-  têm isso explícito (`quality-reviewer`/`qa-engineer`, até "zero
-  achados"); um agente revisando o PRÓPRIO trabalho pega menos erro que
-  um segundo papel dedicado a isso.
+**Ainda falta** (ver PROGRESS.md pro detalhe): um papel de revisão/QA no
+Supervisor. Os repos reais auditados têm isso explícito
+(`quality-reviewer`/`qa-engineer`, até "zero achados"); mesmo com
+auto-validação, um agente revisando o PRÓPRIO trabalho pega menos erro
+que um segundo papel dedicado a isso — é a parte estrutural do problema
+que a mudança acima não resolve sozinha.
 
 ### Outras
 

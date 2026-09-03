@@ -45,8 +45,7 @@ TASK = (
     "precisa conseguir achar qualquer tema facilmente — menu/navegação "
     "clara entre TODAS as categorias e uma busca que funcione através "
     "delas. Siga os padrões de design do time (evite interface genérica, "
-    "decida paleta e tipografia de propósito). Não rode comandos de "
-    "instalação (npm install, pip install) — apenas escreva os arquivos."
+    "decida paleta e tipografia de propósito)."
 )
 
 if __name__ == "__main__":

@@ -165,3 +165,23 @@ npm test -- --run
 npm run build
 npm run dev
 ```
+
+## ✅ Before declaring the frontend done
+
+Per [general.md](general.md), self-validation is mandatory, not optional.
+For a frontend task specifically, run — via `run_command` — in this
+order, and fix anything that fails before moving on:
+
+1. `npm install` (once, if `node_modules` doesn't exist yet).
+2. `npx tsc --noEmit` (or `npm run typecheck` if the project defines it)
+   — a real type error (e.g. `ZodType<T>` breaking inference against a
+   schema with `.default()`) will not show up any other way.
+3. `npm run lint`.
+4. `npm test -- --run`.
+5. `npm run build` — a component that type-checks can still fail to
+   build; this is the check that catches that.
+6. `npm audit`. A critical/high finding on a **production** dependency
+   (not a dev-only tool like eslint/vitest) gets bumped to a patched
+   version in the same major line before you finish — a pinned version
+   with known CVEs is not "done", regardless of how recent it looked
+   when you picked it.

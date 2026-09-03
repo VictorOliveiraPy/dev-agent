@@ -171,3 +171,20 @@ fail_under = 70
 
 **Commands:** `ruff check app tests` · `mypy app` · `pytest -q --cov` ·
 `uvicorn app.main:app --reload`
+
+## ✅ Before declaring the backend done
+
+Per [general.md](general.md), self-validation is mandatory, not optional.
+For a backend task specifically, run — via `run_command` — in this order,
+and fix anything that fails before moving on:
+
+1. `pip install -r requirements.txt` (once, if not already installed).
+2. `ruff check app tests` — lint.
+3. `mypy app` — type check.
+4. `pytest -q` — the test suite. A red test is a blocked task, not a
+   footnote in the final report.
+5. If you added or changed a dependency: `pip install pip-audit && pip-audit`
+   (or `pip list --outdated` if that fails to install). A high/critical
+   finding on a production dependency gets bumped to a patched version in
+   the same major line before you finish — don't ship a dependency you
+   know is vulnerable because "it still runs".

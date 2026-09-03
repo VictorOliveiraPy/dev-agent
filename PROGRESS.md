@@ -36,14 +36,17 @@ teve `node_modules` — logo nunca pôde rodar `tsc`/`eslint`/`vitest`/
 1. ✅ **Feito**: `run_command` tinha timeout de 60s — curto demais pra
    instalar dependência de verdade (`npm install` real levou ~2min).
    Subiu pra 180s (`agents/tools.py`).
-2. **Pendente**: instruções de tarefa pra builds de projeto REAL (não os
-   scripts de teste rápido) precisam PERMITIR e EXIGIR auto-validação —
-   instalar dependência, rodar typecheck/lint/teste/build, e só then
-   reportar "concluído". Hoje isso não está em nenhum `standards/*.md`
-   nem nas tarefas dos scripts de build real.
-3. **Pendente**: `standards/backend.md` e `standards/frontend.md` não
-   pedem checagem de dependência vulnerável (`pip-audit`/`npm audit`)
-   como parte de "antes de considerar pronto" — nenhum dos dois hoje.
+2. ✅ **Feito**: auto-validação virou seção obrigatória em
+   `standards/general.md` (instalar → typecheck/lint/teste/build →
+   `pip-audit`/`npm audit` → só então "concluído"), com os comandos
+   exatos em `standards/backend.md` e `standards/frontend.md`. Como fica
+   na persona automaticamente (não no texto de UMA tarefa), vale pra
+   qualquer build futuro sem precisar repetir a instrução. Removida a
+   proibição de instalar de `build_fe_catolica.py`/
+   `resume_fe_catolica_frontend.py` (ficaria contraditória com o padrão
+   novo). Testado que as duas personas carregam a regra certa, sem API.
+3. **Pendente**: item 3 acima (`pip-audit`/`npm audit`) já ficou coberto
+   pelo item 2 — mantido só como registro histórico do problema original.
 4. **Pendente, maior**: considerar um papel de revisão/QA no loop do
    Supervisor. Os repos reais que auditamos (`melhorperfil-api/web`,
    `santo-guardiao-api/web`) têm `quality-reviewer`/`qa-engineer`

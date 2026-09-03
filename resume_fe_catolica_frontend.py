@@ -38,8 +38,7 @@ TASK = (
     "de listagem e detalhe para cada categoria consumindo a API real do "
     "backend, e uma busca que funcione através de TODAS as categorias — "
     "esse é o requisito mais importante do projeto.\n\n"
-    "Não rode comandos de instalação (npm install, pip install). Se "
-    "estiver perto do limite de uma resposta, pare num ponto consistente "
+    "Se estiver perto do limite de uma resposta, pare num ponto consistente "
     "(um arquivo completo) e continue na próxima chamada de tool — não "
     "deixe um arquivo pela metade."
 )
