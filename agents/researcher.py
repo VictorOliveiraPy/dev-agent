@@ -12,7 +12,7 @@ preciso o loop genérico de tool-calling do LangChain.
 
 O ponto mais importante deste módulo não é a busca, é a validação depois
 dela. O gap documentado em PROGRESS.md — "os agentes não tinham como se
-autovalidar" — se aplica em cheio a conteúdo: um modelo pode St dizer que
+autovalidar" — se aplica em cheio a conteúdo: um modelo pode dizer que
 encontrou uma fonte e não ter encontrado, ou (mais comum) montar uma URL
 de imagem "parecida" com uma que viu de verdade. `validate_batch` por
 isso não confia em nada que o modelo afirma: valida cada item contra o
@@ -20,6 +20,13 @@ schema Pydantic REAL do backend (importado do repositório
 `acervo-catolico-api`, não duplicado aqui) e faz uma requisição HTTP de
 verdade em cada URL de imagem proposta, descartando a imagem (nunca a
 entrada inteira) se ela não resolver como imagem de verdade.
+
+Usa Sonnet 5 por padrão, não o Opus 5 dos demais papéis (ver
+`agents/llm.py::_DEFAULT_MODEL`) — pesquisa grounded em busca depende
+mais de seguir regras à risca (nunca inventar, sempre citar) do que do
+raciocínio mais caro do Opus, e o custo real observado desse papel é alto
+por causa do próprio `web_search` (ver PROGRESS.md), não por precisar do
+modelo mais caro.
 """
 
 from __future__ import annotations
@@ -38,6 +45,11 @@ from agents.usage import usage_handler
 logger = logging.getLogger(__name__)
 
 ROLE = "pesquisador"
+
+# Mais barato que o Opus 5 padrão do time (agents/llm.py) — ver nota no
+# docstring do módulo sobre por que este papel não precisa do modelo mais
+# caro.
+_DEFAULT_MODEL = "claude-sonnet-5"
 
 # Descrição do papel — mesma convenção de agents.team.ROLES, mas vive
 # aqui (não lá) porque este papel não segue o padrão create_agent /
@@ -130,6 +142,7 @@ def research_batch(
     *,
     max_attempts: int = 3,
     max_tokens: int = 16000,
+    model: str = _DEFAULT_MODEL,
 ) -> list[dict[str, Any]]:
     """Pesquisa e propõe um lote de entradas — SEM validar (ver `validate_batch`).
 
@@ -142,6 +155,8 @@ def research_batch(
             depois, o validador em `validate_batch`.
         max_attempts: quantas vezes insistir se o modelo responder sem
             chamar `submit_entries` (ex.: fez só uma pergunta de volta).
+        model: ID do modelo Claude. Padrão é Sonnet 5, não o Opus 5 dos
+            demais papéis — ver nota no docstring do módulo.
         max_tokens: teto de saída do modelo. Um lote com muitos itens
             (bug real já visto: 18 concílios numa chamada só, 200k tokens
             de entrada por causa dos resultados de busca acumulados)
@@ -160,8 +175,8 @@ def research_batch(
             depois de `max_attempts` tentativas.
     """
     tools = [_web_search_tool(), _submit_entries_tool(item_model.model_json_schema())]
-    model = (
-        build_chat_model(max_tokens=max_tokens)
+    chat_model = (
+        build_chat_model(max_tokens=max_tokens, model=model)
         .bind_tools(tools)
         .with_config(callbacks=[usage_handler], tags=[f"role:{ROLE}"])
     )
@@ -169,7 +184,7 @@ def research_batch(
     messages: list[Any] = [_system_message(_PERSONA), HumanMessage(content=task)]
 
     for attempt in range(max_attempts):
-        response = model.invoke(messages)
+        response = chat_model.invoke(messages)
 
         stop_reason = response.response_metadata.get("stop_reason")
         if stop_reason == "max_tokens":
