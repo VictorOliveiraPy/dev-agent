@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 USAGE_LOG_PATH = Path(__file__).parent / "usage_log.jsonl"
 
-USAGE_COLUMNS = ["timestamp", "role", "model", "input_tokens", "output_tokens", "total_tokens"]
+USAGE_COLUMNS = [
+    "timestamp", "role", "model", "input_tokens", "output_tokens", "total_tokens",
+    "cache_read_tokens", "cache_creation_tokens",
+]
 
 
 def load_usage(log_path: Path = USAGE_LOG_PATH) -> pd.DataFrame:
@@ -75,13 +78,26 @@ def _render() -> None:
         )
         return
 
-    col1, col2, col3 = st.columns(3)
+    total_input = int(df["input_tokens"].sum())
+    cache_read = int(df["cache_read_tokens"].sum())
+    # Taxa de acerto do cache: quanto do input total já veio do cache em
+    # vez de ser cobrado no preço cheio — ver standards/backend.md e
+    # ARCHITECTURE.md, seção "Custo". Denominador inclui o próprio cache
+    # read porque ele É input (só que mais barato), não input adicional.
+    cache_hit_rate = cache_read / (total_input + cache_read) if (total_input + cache_read) else 0.0
+
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total de chamadas", len(df))
-    col2.metric("Tokens de entrada", int(df["input_tokens"].sum()))
+    col2.metric("Tokens de entrada", total_input)
     col3.metric("Tokens de saída", int(df["output_tokens"].sum()))
+    col4.metric("Taxa de acerto do cache", f"{cache_hit_rate:.0%}")
 
     st.subheader("Tokens por agente (papel)")
-    by_role = df.groupby("role")[["input_tokens", "output_tokens", "total_tokens"]].sum()
+    role_columns = [
+        "input_tokens", "output_tokens", "total_tokens",
+        "cache_read_tokens", "cache_creation_tokens",
+    ]
+    by_role = df.groupby("role")[role_columns].sum()
     st.bar_chart(by_role["total_tokens"])
     st.dataframe(by_role, use_container_width=True)
 

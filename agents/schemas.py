@@ -115,3 +115,9 @@ class UsageEntry(BaseModel):
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     total_tokens: int = Field(ge=0)
+    cache_read_tokens: int = Field(
+        default=0, ge=0, description="Tokens servidos do cache (~0.1x custo) — ver prompt caching."
+    )
+    cache_creation_tokens: int = Field(
+        default=0, ge=0, description="Tokens escritos no cache nesta chamada (~1.25x custo)."
+    )

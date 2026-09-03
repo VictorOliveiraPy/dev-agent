@@ -14,15 +14,13 @@ conta da Anthropic ficou sem crédito no meio do dia 02 — por isso o dia
 03 foi todo em coisas que não custam API. Ver também ARCHITECTURE.md,
 que documenta as decisões e o porquê de cada uma.
 
-**🚀 PRONTO PRA RODAR ASSIM QUE O CRÉDITO VOLTAR:** o usuário definiu o
-primeiro projeto REAL do time — **`fe-catolica`**, uma plataforma sobre a
-Igreja Católica (santos, papas, milagres eucarísticos, catecismo, crisma,
-história da Igreja, doutores da Igreja, concílios), com prioridade em
-estrutura/navegação/busca completas antes de aprofundar cada categoria.
-Repositório git próprio já criado em
-`/home/oliveira/Documentos/code/fe-catolica`. Comando pra rodar:
-`.venv/bin/python build_fe_catolica.py` (dentro de `dev-agent/`). Ver
-seção dedicada abaixo.
+**🎉 PRIMEIRO PROJETO REAL RODOU — `fe-catolica`, em 2026-09-03.** O
+usuário recarregou a conta e mandou rodar. Resultado: backend FastAPI
+completo (8 categorias, 25 testes passando) + frontend Next.js quase
+completo (parou por atingir `max_iterations=40`, não por erro). Ver seção
+dedicada "Projeto real: fe-catolica" abaixo pro relato completo, incluindo
+uma queda de rede real no meio do processo e como foi contornada sem
+repetir trabalho já pago.
 
 ## O que já funciona (testado de verdade, rodando)
 
@@ -193,51 +191,103 @@ com o usuário em 2026-09-03:
   dados que são exemplos iniciais a expandir — mitigação deliberada
   contra alucinação em conteúdo religioso/histórico real.
 - **Onde**: `/home/oliveira/Documentos/code/fe-catolica`, repositório git
-  próprio (separado do dev-agent), já criado (`git init`, vazio).
-- **Como rodar**: `.venv/bin/python build_fe_catolica.py` (dentro de
-  `dev-agent/`) — dispara o Supervisor completo
-  (`MAX_ROUNDS` subiu de 6 pra 10 pra essa tarefa maior).
-- **Ainda não rodado** — esperando o usuário confirmar que o crédito da
-  Anthropic voltou.
+  próprio (separado do dev-agent).
+
+### O que rolou na execução real (2026-09-03)
+
+1. `build_fe_catolica.py` rodou o Supervisor: `arquiteto` → `dev_backend`
+   → `dev_frontend`. Arquiteto e backend terminaram normalmente. No meio
+   da implementação do frontend (depois de escrever os arquivos de
+   config), a chamada quebrou com
+   `httpx.RemoteProtocolError: peer closed connection without sending
+   complete message body` — falha de REDE (conexão caiu no meio de um
+   stream), não bug nosso. `agents.supervisor.run()` não tem
+   checkpoint/resume: o `history` em memória se perde se o processo
+   morre, mas os ARQUIVOS já escritos no disco continuam lá.
+2. Em vez de re-rodar tudo (o que re-pagaria arquiteto + backend do
+   zero), criei `resume_fe_catolica_frontend.py`: aciona
+   `create_agent_with_tools("dev_frontend", ...)` DIRETO — não
+   `run_frontend_task` — com uma instrução pra ler o `tailwind.config.ts`
+   já escrito (não redecidir design) e o backend já pronto, e continuar
+   a implementação dali. Terminou com `Agent stopped due to max
+   iterations` (40) — não erro, só o teto batido depois de gerar bastante
+   coisa (todas as páginas, componentes, lib e testes existem).
+3. Resultado final: **backend completo, 25 testes passando**
+   (`pytest -q -o addopts=""`, rodando com o Python global do sandbox —
+   `pyproject.toml` pede `--cov` mas `pytest-cov` não está instalado
+   globalmente aqui, só no `requirements.txt` do próprio fe-catolica).
+   **Frontend com toda a estrutura** (home, nav entre as 8 categorias,
+   listagem, detalhe, busca cross-categoria, error/not-found, testes
+   `vitest` pra lógica pura) — não validado rodando (`node`/`npm` não
+   existem neste ambiente), então falta confirmar
+   `npm install && npm run build && npm test` numa máquina com Node.
+4. **Design decidido pelo `dev_frontend`**: paleta pergaminho/bordô/
+   púrpura/dourado, serifada + sans, cantos praticamente retos de
+   propósito ("o projeto é impresso, não app de celular") — nenhum
+   clichê de `standards/design.md` apareceu.
+5. **Mitigação de conteúdo funcionou**: cada JSON de dados veio com
+   `_meta.status: "exemplos-iniciais"`, aviso explícito de que precisa
+   revisão contra fonte primária, datas incertas marcadas com "c." em vez
+   de inventadas, e fontes gerais citadas (Martirológio Romano,
+   vatican.va).
+6. **Achado**: nosso log de uso não capturava `cache_read`/
+   `cache_creation` (só o total) — corrigido depois desta run (ver
+   ARCHITECTURE.md); os 71 registros desta primeira execução real ficaram
+   sem esse detalhe, então não dá pra confirmar se o prompt caching
+   funcionou NESTA run especificamente. **3.04M tokens de entrada, 130K
+   de saída, 71+2 chamadas** ao todo (arquiteto: 2 chamadas; dev_backend:
+   ~1 rodada completa; dev_frontend: 2 execuções — a que caiu + a de
+   retomada).
+7. Commitado localmente no `fe-catolica` (`git commit`, sem push — não há
+   remote configurado ainda).
+
+### Pendente de revisão humana antes de considerar "pronto"
+
+- Rodar `npm install && npm run build && npm test` no frontend numa
+  máquina com Node.
+- Ler o conteúdo religioso/histórico gerado com atenção — a mitigação
+  ajudou, mas exemplo gerado por LLM sempre merece checagem antes de
+  virar parte pública de uma plataforma.
+- Decidir se o `fe-catolica` ganha um remote no GitHub.
 
 ## Pendências / próximos passos possíveis
 
-1. **Rodar `build_fe_catolica.py`** assim que houver crédito — é a
-   prioridade agora, à frente do item genérico de re-testar
-   `team_supervisor.py` (o próprio fe-catolica já serve como esse teste,
-   com um propósito real).
+1. **Validar o frontend do fe-catolica rodando de verdade**
+   (`npm install && npm run build && npm test`) numa máquina com Node —
+   não verificado nesta sessão.
 2. **Revisar o conteúdo gerado com olho crítico antes de considerar
    "pronto"** — mesmo com a mitigação na tarefa, fatos religiosos/
    históricos gerados por LLM merecem checagem humana antes de virar
    parte pública da plataforma.
-3. **Rodar `team_supervisor.py` de novo** (tarefa de teste genérica,
-   menor prioridade que o item 1) — a última execução ponta a ponta foi
-   ANTES de tudo que rigorizamos depois: `standards/backend.md`, saída
-   estruturada do arquiteto, e a troca de frontend pra Next.js. Vale ver:
-   (a) se o backend gerado reflete IDOR-safe queries, exceções tipadas
-   etc.; (b) se o `ArchitecturePlan` vem preenchido direito; (c) se o
-   frontend já sai em Next.js/TypeScript, seguindo `design.md`; (d) se
-   algum papel usa `search_standards` sozinho, sem eu ter pedido.
+3. **Aprofundar categoria por categoria no fe-catolica** — v1 entregou
+   estrutura completa com 2-3 exemplos por categoria (escolha explícita
+   do usuário); o próximo passo natural do PRODUTO (não do dev-agent) é
+   popular cada categoria de verdade.
 4. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
-   o próprio `dev_backend` conferir se o código do time está aderente aos
-   padrões, do ponto de vista dele — inclui checar os paths novos
+   o próprio `dev_backend` conferir se o código do TIME (dev-agent, não o
+   fe-catolica) está aderente aos padrões — inclui checar os paths novos
    (`agents/`, `standards/`) e o `.github/workflows/ci.yml`.
 5. **Memória entre execuções** — ainda não construída. `trim_messages`
    (LangChain, ainda válido/atual) é o candidato certo — as classes
    antigas de `langchain.memory` (`ConversationBufferWindowMemory` e
    primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-6. **RAG sob demanda — parcialmente feito.** `search_standards` existe e
-   funciona, mas hoje é ADITIVO: a persona ainda empilha o `.md` inteiro
-   E tem a tool. A decisão de ir além — persona enxuta (só um resumo) +
-   a tool vira a única fonte da regra detalhada — foi propositalmente
-   adiada (ver ARCHITECTURE.md): sem crédito de API pra testar se o
-   modelo usa a tool o suficiente sem a rede de segurança do contexto
-   stuffado, é arriscado trocar agora.
-7. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
-   acompanhar em tempo real durante uma execução longa (ex: o Supervisor
-   rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
-   é preciso atualizar a página manualmente.
-8. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
+6. **`agents.supervisor.run()` não tem checkpoint/resume.** A queda de
+   rede no fe-catolica só foi contornável porque os arquivos já escritos
+   sobrevivem no disco — o `history` em memória, não. Se isso voltar a
+   acontecer, vale considerar salvar o `history` em disco a cada rodada
+   (não só no fim), pra um resume automático não precisar de um script
+   manual como `resume_fe_catolica_frontend.py`.
+7. **RAG sob demanda — parcialmente feito, mas já validado em uso real.**
+   `search_standards` foi chamada 3x sozinha durante o build do
+   fe-catolica (sem eu ter pedido) — o time usa a tool quando faz
+   sentido. Ainda é ADITIVO (a persona segue empilhando o `.md` inteiro
+   também); ir além (persona enxuta + tool como única fonte) continua
+   adiado por ora.
+8. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+   acompanhar em tempo real durante uma execução longa, dá pra explorar
+   `st.rerun`/auto-refresh — hoje é preciso atualizar a página
+   manualmente.
+9. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
    acima, não verificado nesta sessão.
 
 ## Gotchas importantes (não repetir)

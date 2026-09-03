@@ -144,6 +144,17 @@ dependência do projeto. Usamos o `usage_metadata` nativo do
 (`agents/usage.py`) que também não depende de nenhuma classe de Memory
 deprecada.
 
+**`cache_read_tokens`/`cache_creation_tokens` no log, não só o total.**
+Lacuna encontrada na primeira execução real (`fe-catolica`): tínhamos
+implementado prompt caching mas o próprio log não capturava
+`usage_metadata["input_token_details"]` (onde o LangChain expõe
+`cache_read`/`cache_creation`), então não dava pra confirmar se o cache
+estava funcionando — só o total de tokens. Corrigido depois dessa
+primeira run (os 71 registros dela ficaram sem esse dado, default 0 por
+retrocompatibilidade — `UsageEntry` não quebra lendo log antigo); toda
+execução daqui pra frente já mostra a taxa de acerto do cache no
+dashboard.
+
 **`UsageEntry` (Pydantic) valida o log tanto na escrita quanto na
 leitura.** Uma linha malformada em `usage_log.jsonl` (log antigo, edição
 manual) é ignorada com aviso — não derruba o dashboard inteiro parseando

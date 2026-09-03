@@ -22,7 +22,12 @@ class _FakeChatModel(BaseChatModel):
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         message = AIMessage(
             content="resposta falsa",
-            usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            usage_metadata={
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "total_tokens": 15,
+                "input_token_details": {"cache_read": 8, "cache_creation": 0},
+            },
         )
         return ChatResult(generations=[ChatGeneration(message=message)])
 
@@ -60,3 +65,33 @@ def test_should_log_usage_when_create_agent_is_invoked(tmp_path, monkeypatch):
     entry = json.loads(lines[0])
     assert entry["role"] == "arquiteto"
     assert entry["total_tokens"] == 15
+    assert entry["cache_read_tokens"] == 8
+    assert entry["cache_creation_tokens"] == 0
+
+
+def test_should_default_cache_fields_to_zero_when_usage_has_no_cache_details(tmp_path, monkeypatch):
+    """Modelo/versão sem input_token_details não quebra o registro — vira 0."""
+
+    class _NoCacheDetailsModel(BaseChatModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            message = AIMessage(
+                content="resposta falsa",
+                usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            )
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+        @property
+        def _llm_type(self) -> str:
+            return "fake-no-cache"
+
+    log_path = tmp_path / "usage_log.jsonl"
+    handler = UsageCallbackHandler(log_path=log_path)
+    monkeypatch.setattr(team, "build_chat_model", lambda *args, **kwargs: _NoCacheDetailsModel())
+    monkeypatch.setattr(team, "usage_handler", handler)
+
+    agent = team.create_agent("arquiteto")
+    agent.invoke({"task": "tarefa de teste"})
+
+    entry = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert entry["cache_read_tokens"] == 0
+    assert entry["cache_creation_tokens"] == 0

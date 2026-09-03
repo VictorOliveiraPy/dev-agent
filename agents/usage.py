@@ -92,6 +92,11 @@ class UsageCallbackHandler(BaseCallbackHandler):
         vier com um tipo inesperado, falha alto e cedo, não silenciosamente
         no meio de um DataFrame do dashboard.
         """
+        # input_token_details carrega o detalhamento de cache
+        # (cache_read/cache_creation) que o langchain_anthropic já calcula
+        # — sem isso não dá pra confirmar se o prompt caching está
+        # funcionando de verdade (ver ARCHITECTURE.md, seção "Custo").
+        cache_details = usage.get("input_token_details") or {}
         entry = UsageEntry(
             timestamp=datetime.now(UTC),
             role=role,
@@ -99,6 +104,8 @@ class UsageCallbackHandler(BaseCallbackHandler):
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
+            cache_read_tokens=cache_details.get("cache_read") or 0,
+            cache_creation_tokens=cache_details.get("cache_creation") or 0,
         )
         logger.info("Chamada ao modelo concluída", extra=entry.model_dump(mode="json"))
 

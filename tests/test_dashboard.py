@@ -15,6 +15,7 @@ def test_should_return_empty_dataframe_when_log_file_does_not_exist(tmp_path):
     assert df.empty
     assert list(df.columns) == [
         "timestamp", "role", "model", "input_tokens", "output_tokens", "total_tokens",
+        "cache_read_tokens", "cache_creation_tokens",
     ]
 
 
