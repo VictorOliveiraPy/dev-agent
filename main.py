@@ -7,7 +7,7 @@ os próximos passos. Aqui validamos só a fundação: fábrica de modelo +
 personas.
 """
 
-from agentes.team import ROLES, create_agent
+from agents.team import ROLES, create_agent
 
 
 def demo(task: str) -> None:

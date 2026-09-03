@@ -1,4 +1,4 @@
-"""Testes para a montagem de persona do time (agentes/team.py).
+"""Testes para a montagem de persona do time (agents/team.py).
 
 Só cobre lógica pura e determinística — nenhum destes testes chama a API
 da Anthropic.
@@ -6,12 +6,12 @@ da Anthropic.
 
 import pytest
 
-from agentes import team
+from agents import team
 
 
 @pytest.fixture
 def standards_dir(tmp_path, monkeypatch):
-    """Aponta agentes.team._STANDARDS_DIR para uma pasta de padrões isolada."""
+    """Aponta agents.team._STANDARDS_DIR para uma pasta de padrões isolada."""
     monkeypatch.setattr(team, "_STANDARDS_DIR", tmp_path)
     return tmp_path
 

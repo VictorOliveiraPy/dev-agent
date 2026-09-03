@@ -1,4 +1,4 @@
-"""Testes para os modelos Pydantic compartilhados (agentes/schemas.py).
+"""Testes para os modelos Pydantic compartilhados (agents/schemas.py).
 
 Validação pura — nenhum destes testes chama a API da Anthropic.
 """
@@ -6,7 +6,7 @@ Validação pura — nenhum destes testes chama a API da Anthropic.
 import pytest
 from pydantic import ValidationError
 
-from agentes.schemas import ArchitecturePlan, Decision, PlannedFile, UsageEntry
+from agents.schemas import ArchitecturePlan, Decision, PlannedFile, UsageEntry
 
 
 def test_should_accept_valid_decision_payload():

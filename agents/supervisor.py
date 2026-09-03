@@ -14,10 +14,10 @@ import logging
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from agentes.llm import build_chat_model
-from agentes.schemas import ArchitecturePlan, Decision
-from agentes.team import create_agent, create_agent_with_tools
-from agentes.tools import list_dir, read_file, run_command, write_file
+from agents.llm import build_chat_model
+from agents.schemas import ArchitecturePlan, Decision
+from agents.team import create_agent, create_agent_with_tools
+from agents.tools import list_dir, read_file, run_command, write_file
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_messages([
     ),
 ])
 
-# O roteador usa saída estruturada (ver agentes/schemas.py::Decision) para
+# O roteador usa saída estruturada (ver agents/schemas.py::Decision) para
 # que o "próximo passo" seja um objeto validado, não texto livre pra fazer
 # parsing na mão.
 _router = _ROUTER_PROMPT | build_chat_model(max_tokens=2048).with_structured_output(Decision)

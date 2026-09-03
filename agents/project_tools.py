@@ -1,6 +1,6 @@
 """Ferramentas de escrita no código REAL do time (não no `workspace/`).
 
-As tools de `agentes/tools.py` são sandboxed em `workspace/` de propósito —
+As tools de `agents/tools.py` são sandboxed em `workspace/` de propósito —
 nenhum papel do time toca no próprio código-fonte por padrão. Este módulo
 existe só para a tarefa pontual de auto-refatoração: dar ao `dev_backend`
 acesso de escrita à raiz do projeto, com uma lista de bloqueio explícita
@@ -43,7 +43,7 @@ def write_project_file(path: str, content: str) -> str:
     """Sobrescreve um arquivo do código-fonte real do time (fora da sandbox).
 
     Args:
-        path: caminho relativo à raiz do projeto, ex: 'agentes/llm.py'.
+        path: caminho relativo à raiz do projeto, ex: 'agents/llm.py'.
         content: conteúdo completo a ser escrito no arquivo.
     """
     target = _safe_path(path)

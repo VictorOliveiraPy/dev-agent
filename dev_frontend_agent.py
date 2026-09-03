@@ -9,8 +9,8 @@ Passo 4 (Supervisor): times reais coordenam trabalho consultando o que os
 outros membros já fizeram, não trabalhando às cegas.
 """
 
-from agentes.team import create_agent_with_tools
-from agentes.tools import list_dir, read_file, run_command, write_file
+from agents.team import create_agent_with_tools
+from agents.tools import list_dir, read_file, run_command, write_file
 
 FRONTEND_TOOLS = [write_file, read_file, list_dir, run_command]
 

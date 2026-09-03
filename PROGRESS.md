@@ -13,17 +13,17 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
 
 ## O que já funciona (testado de verdade, rodando)
 
-- **`agentes/llm.py`** — fábrica única do `ChatAnthropic` (`claude-opus-5`,
+- **`agents/llm.py`** — fábrica única do `ChatAnthropic` (`claude-opus-5`,
   `max_tokens` explícito — evita respostas cortadas no meio de tool calls).
-- **`agentes/team.py`** — personas do time (`ROLES`) + composição automática
-  com `padroes/*.md` (`_build_persona`). Testado que monta certo, inclusive
+- **`agents/team.py`** — personas do time (`ROLES`) + composição automática
+  com `standards/*.md` (`_build_persona`). Testado que monta certo, inclusive
   o escape de chaves literais (bug real que já apareceu e foi corrigido).
-- **`agentes/tools.py`** — `write_file`/`read_file`/`list_dir`/`run_command`
+- **`agents/tools.py`** — `write_file`/`read_file`/`list_dir`/`run_command`
   sandboxed em `workspace/` (path traversal bloqueado, testado).
-- **`agentes/project_tools.py`** — mesma ideia, mas sandboxed na raiz do
+- **`agents/project_tools.py`** — mesma ideia, mas sandboxed na raiz do
   projeto real, com bloqueio explícito de `.env`/`.git`/`.venv`/`workspace`
   (pra auto-manutenção do próprio time). Testado.
-- **`agentes/supervisor.py`** — roteador com saída estruturada (`Decision`)
+- **`agents/supervisor.py`** — roteador com saída estruturada (`Decision`)
   que decide qual papel age a cada rodada. Rodou ponta a ponta uma vez
   (antes da rigorização dos padrões) e escolheu certinho:
   `arquiteto → dev_backend → dev_frontend → concluido`.
@@ -32,7 +32,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   `hashlib`, testes próprios, pytest passando) e um frontend React
   (Vite, `AuthContext`, telas de login/registro) que leu o backend real
   antes de codar e detectou sozinho uma lacuna de CORS.
-- **`padroes/general.md` + `padroes/backend.md`** — destilados de dois
+- **`standards/general.md` + `standards/backend.md`** — destilados de dois
   repos reais em produção (`melhorperfil-api`, `santo-guardiao-api`):
   arquitetura em camadas, config com `pydantic-settings`, exceções
   tipadas, checklist de segurança (IDOR, JWT, fail-closed), logging
@@ -45,12 +45,12 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   (ruff + pytest), 12 testes novos (`tests/`) cobrindo lógica pura
   (montagem de persona, sandbox de caminho). `ruff check .` limpo,
   `pytest -q` passando.
-- **`agentes/usage.py`** — `UsageCallbackHandler` grava cada chamada real
+- **`agents/usage.py`** — `UsageCallbackHandler` grava cada chamada real
   ao modelo em `usage_log.jsonl` (papel, tokens de entrada/saída, modelo,
   timestamp), lendo o `usage_metadata` nativo do `langchain_anthropic`
   (NÃO o `get_openai_callback`, que é específico da OpenAI e nem está
   instalado no projeto — ver "Gotchas"). Já conectado em
-  `agentes/team.py` (`create_agent`/`create_agent_with_tools` via
+  `agents/team.py` (`create_agent`/`create_agent_with_tools` via
   `.with_config(callbacks=..., tags=["role:<papel>"])`) — todo agente já
   registra uso automaticamente, sem precisar mudar nenhum script de
   entrada. Testado de ponta a ponta com um chat model falso (sem custo de
@@ -60,7 +60,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   últimas chamadas. Testado: sobe (`streamlit run`, HTTP 200 confirmado)
   e a função de leitura (`load_usage`) tem testes próprios. Rodar com
   `.venv/bin/streamlit run dashboard.py`.
-- **`agentes/schemas.py`** — lugar único pros modelos Pydantic
+- **`agents/schemas.py`** — lugar único pros modelos Pydantic
   compartilhados: `Decision` (movido de dentro de `supervisor.py`),
   `UsageEntry` (agora é o schema de verdade do `usage_log.jsonl`, validado
   tanto na escrita quanto na leitura pelo dashboard) e `ArchitecturePlan` +
@@ -75,7 +75,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
 ## Pendências / próximos passos possíveis
 
 1. **Rodar `team_supervisor.py` de novo** — a última execução ponta a
-   ponta foi ANTES da rigorização de `padroes/backend.md` E antes da
+   ponta foi ANTES da rigorização de `standards/backend.md` E antes da
    saída estruturada do arquiteto. Vale ver: (a) se o código gerado
    reflete IDOR-safe queries, exceções tipadas etc.; (b) se o
    `ArchitecturePlan` vem preenchido direito; (c) vai ser a primeira
@@ -86,7 +86,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
 3. **Decidir um projeto real** pra equipe construir — até agora só pedidos
    de teste genéricos (login, lista de favoritos). Ficou em aberto
    propositalmente ("vou decidir na hora").
-4. **`padroes/frontend.md` ainda é só baseline**, não foi auditado contra
+4. **`standards/frontend.md` ainda é só baseline**, não foi auditado contra
    um frontend real em produção (dá pra fazer o mesmo processo que foi
    feito com o backend, usando `melhorperfil-web` como fonte).
 5. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
@@ -95,7 +95,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
    ainda válido/atual) é o candidato certo pro dia que isso for construído
    — as classes antigas de `langchain.memory` (`ConversationBufferWindowMemory`
    e primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-6. **Renomear os diretórios** `agentes/`, `padroes/`, `workspace/` pro
+6. **Renomear os diretórios** `agents/`, `standards/`, `workspace/` pro
    inglês — decisão adiada de propósito (mudança mais estrutural/arriscada
    que renomear só identificadores de código).
 7. **CI** — agora que `ruff`/`pytest` estão configurados, dá pra subir um
@@ -109,7 +109,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
 
 - **`ChatAnthropic` sem `max_tokens` explícito corta respostas com
   thinking + várias tool calls no meio do JSON.** Sempre passe
-  `max_tokens` (ver `agentes/llm.py`).
+  `max_tokens` (ver `agents/llm.py`).
 - **`ChatPromptTemplate` trata a string do "system" como f-string** —
   chaves literais de exemplo de código (ex: `extra={"user_id": user.id}`)
   quebram a montagem do prompt se não forem escapadas (`_build_persona` já
@@ -125,7 +125,7 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
 - **`get_openai_callback` (langchain_community) não serve pra rastrear
   uso do Claude** — é específico do formato de resposta da OpenAI, e o
   `langchain_community` nem é dependência do projeto. O jeito certo é o
-  `usage_metadata` nativo do `langchain_anthropic` (ver `agentes/usage.py`).
+  `usage_metadata` nativo do `langchain_anthropic` (ver `agents/usage.py`).
 - **`ConversationBufferWindowMemory`, `ConversationSummaryMemory` e
   `ConversationSummaryBufferMemory` (`langchain.memory`) estão
   deprecadas** desde a 0.3.1 (removal na 1.0.0) — não usar em código

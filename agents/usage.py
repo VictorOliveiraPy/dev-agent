@@ -20,7 +20,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
 
-from agentes.schemas import UsageEntry
+from agents.schemas import UsageEntry
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class UsageCallbackHandler(BaseCallbackHandler):
     """Grava, em um arquivo JSONL, os tokens gastos em cada chamada ao modelo.
 
     O papel (role) responsável pela chamada é lido das tags associadas ao
-    Runnable — ver `agentes/team.py`, que já anexa `tags=["role:<role>"]`
+    Runnable — ver `agents/team.py`, que já anexa `tags=["role:<role>"]`
     em `create_agent`/`create_agent_with_tools`. Uma instância desta classe
     é compartilhada por todo o time (`usage_handler`, no fim deste
     arquivo), então todas as chamadas caem no mesmo arquivo de log.
@@ -108,5 +108,5 @@ class UsageCallbackHandler(BaseCallbackHandler):
 
 
 # Instância única compartilhada por todos os agentes do time — ver
-# agentes/team.py, onde é anexada a cada Runnable/AgentExecutor criado.
+# agents/team.py, onde é anexada a cada Runnable/AgentExecutor criado.
 usage_handler = UsageCallbackHandler()

@@ -4,10 +4,10 @@ em vez de eu escolher manualmente (como nos Passos 2 e 3).
 
 import logging
 
-from agentes.supervisor import run
+from agents.supervisor import run
 
 if __name__ == "__main__":
-    # Habilita o logging estruturado do supervisor (ver agentes/supervisor.py)
+    # Habilita o logging estruturado do supervisor (ver agents/supervisor.py)
     # neste terminal — sem isso as decisões de roteamento ficam invisíveis.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 

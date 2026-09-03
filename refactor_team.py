@@ -7,18 +7,18 @@ se o resultado não for bom, `git diff` mostra exatamente o que mudou e
 `git checkout -- .` reverte tudo.
 
 Nota histórica: a primeira tarefa deste script (renomear identificadores
-para inglês + logging estruturado + testes, seguindo padroes/backend.md)
+para inglês + logging estruturado + testes, seguindo standards/backend.md)
 foi interrompida por falta de crédito de API e acabou sendo feita
 manualmente. O script continua útil para a próxima rodada de manutenção.
 """
 
-from agentes.project_tools import (
+from agents.project_tools import (
     list_project_dir,
     read_project_file,
     run_project_command,
     write_project_file,
 )
-from agentes.team import create_agent_with_tools
+from agents.team import create_agent_with_tools
 
 PROJECT_TOOLS = [write_project_file, read_project_file, list_project_dir, run_project_command]
 
@@ -37,8 +37,8 @@ def demo(task: str) -> str:
 if __name__ == "__main__":
     output_text = demo(
         "Use list_project_dir para mapear o projeto e read_project_file "
-        "para ler cada arquivo .py em agentes/ e na raiz. Audite a "
-        "aderência a padroes/general.md e padroes/backend.md (ignorando o "
+        "para ler cada arquivo .py em agents/ e na raiz. Audite a "
+        "aderência a standards/general.md e standards/backend.md (ignorando o "
         "que é específico de API REST: IDOR, JWT, CORS, webhook, dinheiro "
         "em centavos). Rode '.venv/bin/python -m ruff check .' e "
         "'.venv/bin/python -m pytest -q' via run_project_command. "

@@ -1,4 +1,4 @@
-"""Testes para o sandbox de caminho seguro de agentes/tools.py.
+"""Testes para o sandbox de caminho seguro de agents/tools.py.
 
 Só cobre lógica pura e determinística — nenhum destes testes chama a API
 da Anthropic nem invoca as tools via LangChain.
@@ -6,7 +6,7 @@ da Anthropic nem invoca as tools via LangChain.
 
 import pytest
 
-from agentes import tools
+from agents import tools
 
 
 def test_should_resolve_path_when_it_stays_inside_workspace():

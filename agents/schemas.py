@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class Decision(BaseModel):
-    """Decisão do Supervisor sobre o próximo passo do time (ver agentes/supervisor.py)."""
+    """Decisão do Supervisor sobre o próximo passo do time (ver agents/supervisor.py)."""
 
     next_role: Literal["arquiteto", "dev_backend", "dev_frontend", "concluido"] = Field(
         description="Qual papel deve agir agora, ou 'concluido' se a tarefa já foi atendida."
@@ -51,7 +51,7 @@ class UsageEntry(BaseModel):
     """Uma chamada registrada ao modelo: quem, quantos tokens, quando.
 
     É o schema de cada linha de `usage_log.jsonl` — escrito por
-    `agentes/usage.py` e lido por `dashboard.py`. Ter os dois lados
+    `agents/usage.py` e lido por `dashboard.py`. Ter os dois lados
     validando contra o MESMO modelo evita o log e o dashboard divergirem
     silenciosamente sobre o formato dos dados.
     """

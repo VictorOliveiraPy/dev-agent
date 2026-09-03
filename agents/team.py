@@ -2,7 +2,7 @@
 à fábrica de modelo, forma um agente especializado.
 
 As personas são compostas em duas camadas: a descrição do papel (fixa,
-abaixo) + os padrões de código do time, lidos de `padroes/*.md` em runtime
+abaixo) + os padrões de código do time, lidos de `standards/*.md` em runtime
 (ver `_build_persona`). Isso separa "quem esse agente é" (código Python)
 de "que convenções ele deve seguir" (arquivos .md editáveis sem tocar em
 Python — mesma ideia de um CLAUDE.md).
@@ -17,8 +17,8 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
-from agentes.llm import build_chat_model
-from agentes.usage import usage_handler
+from agents.llm import build_chat_model
+from agents.usage import usage_handler
 
 # Cada entrada é o "system prompt" que define o papel dentro do time.
 ROLES: dict[str, str] = {
@@ -47,7 +47,7 @@ _ROLE_STANDARDS: dict[str, list[str]] = {
     "dev_frontend": ["frontend.md"],
 }
 
-_STANDARDS_DIR = Path(__file__).parent.parent / "padroes"
+_STANDARDS_DIR = Path(__file__).parent.parent / "standards"
 
 
 def _read_standard(filename: str) -> str:
@@ -59,7 +59,7 @@ def _read_standard(filename: str) -> str:
 def _build_persona(role: str) -> str:
     """Junta a descrição do papel aos padrões de código aplicáveis a ele.
 
-    Sempre inclui `padroes/general.md` (se existir) e, adicionalmente, os
+    Sempre inclui `standards/general.md` (se existir) e, adicionalmente, os
     arquivos listados em `_ROLE_STANDARDS[role]`. O resultado é o system
     prompt final enviado ao modelo — os .md viram parte do prompt, não são
     lidos via tool (ver Aula/Passo sobre RAG para o padrão alternativo, de
@@ -82,7 +82,7 @@ def _build_persona(role: str) -> str:
     # f-string por padrão: qualquer '{' literal (ex: exemplo de código com
     # `extra={"user_id": user.id}` nos .md de padrões) seria interpretado
     # como início de variável e quebra a montagem do prompt (bug real que
-    # apareceu ao adicionar exemplos de código em padroes/backend.md).
+    # apareceu ao adicionar exemplos de código em standards/backend.md).
     # Escapamos aqui porque a persona é conteúdo literal, nunca um template
     # com variáveis de verdade — {task} continua funcionando porque vive
     # numa mensagem "human" separada, não dentro da persona.
@@ -96,7 +96,7 @@ def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Run
         role: uma chave de ROLES (ex: "arquiteto").
         output_schema: se informado, a chain devolve uma INSTÂNCIA desse
             modelo Pydantic (saída estruturada — ver
-            `agentes.schemas.ArchitecturePlan`) em vez de texto solto. Sem
+            `agents.schemas.ArchitecturePlan`) em vez de texto solto. Sem
             isso, o comportamento padrão (texto) é mantido.
 
     Returns:
@@ -121,7 +121,7 @@ def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Run
 
     # with_config "gruda" o callback de uso de tokens e a tag de papel em
     # QUALQUER invocação futura desta chain — quem chama .invoke() não
-    # precisa saber que isso existe (ver agentes/usage.py e dashboard.py).
+    # precisa saber que isso existe (ver agents/usage.py e dashboard.py).
     return chain.with_config(callbacks=[usage_handler], tags=[f"role:{role}"])
 
 

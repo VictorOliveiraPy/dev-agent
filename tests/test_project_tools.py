@@ -1,4 +1,4 @@
-"""Testes para o sandbox de caminho seguro de agentes/project_tools.py.
+"""Testes para o sandbox de caminho seguro de agents/project_tools.py.
 
 Só cobre lógica pura e determinística — nenhum destes testes chama a API
 da Anthropic nem escreve de verdade no projeto.
@@ -6,12 +6,12 @@ da Anthropic nem escreve de verdade no projeto.
 
 import pytest
 
-from agentes import project_tools
+from agents import project_tools
 
 
 def test_should_resolve_path_when_it_stays_inside_project_root():
     """Um arquivo comum do projeto resolve normalmente."""
-    result = project_tools._safe_path("agentes/team.py")
+    result = project_tools._safe_path("agents/team.py")
 
     assert result.is_relative_to(project_tools.PROJECT_ROOT)
 

@@ -1,5 +1,5 @@
-"""Testes para o rastreamento de uso de tokens (agentes/usage.py) e sua
-integração com agentes/team.py.
+"""Testes para o rastreamento de uso de tokens (agents/usage.py) e sua
+integração com agents/team.py.
 
 Usa um chat model falso (sem rede, sem custo de API) pra provar que o
 UsageCallbackHandler é acionado de ponta a ponta quando um agente real do
@@ -12,8 +12,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from agentes import team
-from agentes.usage import UsageCallbackHandler, _extract_role
+from agents import team
+from agents.usage import UsageCallbackHandler, _extract_role
 
 
 class _FakeChatModel(BaseChatModel):

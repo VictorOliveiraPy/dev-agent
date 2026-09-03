@@ -1,6 +1,6 @@
 """Dashboard Streamlit: acompanha tokens gastos e atividade de cada agente
-do time, lendo `usage_log.jsonl` (gerado por `agentes/usage.py` a cada
-chamada real ao modelo — ver `agentes/team.py`).
+do time, lendo `usage_log.jsonl` (gerado por `agents/usage.py` a cada
+chamada real ao modelo — ver `agents/team.py`).
 
 Rodar: .venv/bin/streamlit run dashboard.py
 
@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 from pydantic import ValidationError
 
-from agentes.schemas import UsageEntry
+from agents.schemas import UsageEntry
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def load_usage(log_path: Path = USAGE_LOG_PATH) -> pd.DataFrame:
     """Lê o arquivo de log de uso inteiro e devolve como DataFrame.
 
     Cada linha é validada contra `UsageEntry` — o mesmo modelo usado por
-    `agentes/usage.py` pra escrever o log. Uma linha malformada (log antigo,
+    `agents/usage.py` pra escrever o log. Uma linha malformada (log antigo,
     edição manual) é ignorada com um aviso no log, não derruba o dashboard
     inteiro.
 
