@@ -7,6 +7,7 @@ da Anthropic.
 import pytest
 
 from agents import team
+from agents.schemas import ColorToken, DesignPlan
 
 
 @pytest.fixture
@@ -52,3 +53,66 @@ def test_should_escape_curly_braces_when_standards_contain_code_examples(standar
 def test_should_return_empty_string_when_standard_file_is_missing(standards_dir):
     """Um arquivo de padrão que não existe não derruba a montagem da persona."""
     assert team._read_standard("nao_existe.md") == ""
+
+
+def test_should_extract_text_when_agent_output_is_content_block_list():
+    """O campo 'output' de um AgentExecutor pode vir como lista de blocks
+    (thinking + texto) em vez de string pronta — extract_agent_output_text
+    normaliza os dois formatos.
+    """
+    blocks = [
+        {"type": "thinking", "thinking": "raciocínio interno"},
+        {"type": "text", "text": "resposta final"},
+    ]
+
+    assert team.extract_agent_output_text({"output": blocks}) == "resposta final"
+    assert team.extract_agent_output_text({"output": "já é texto"}) == "já é texto"
+
+
+def test_should_pass_design_plan_into_implementation_task_when_running_frontend_task(monkeypatch):
+    """run_frontend_task chama o planner (DesignPlan) primeiro e repassa o
+    plano decidido como parte da tarefa do agente de implementação — a
+    implementação não decide cor/fonte de novo.
+    """
+    fixed_plan = DesignPlan(
+        colors=[
+            ColorToken(name="accent", hex="#2A6F4D"),
+            ColorToken(name="surface", hex="#F4F1EA"),
+            ColorToken(name="text", hex="#1A1A1A"),
+            ColorToken(name="muted", hex="#6B7280"),
+        ],
+        display_font="Fraunces",
+        body_font="Source Sans 3",
+        layout_concept="Sidebar fixa + conteúdo em cards de largura igual.",
+    )
+
+    class _FakePlanner:
+        def invoke(self, inputs):
+            assert "design system" in inputs["task"]
+            return fixed_plan
+
+    captured_implementation_task = {}
+
+    class _FakeImplementer:
+        def invoke(self, inputs):
+            captured_implementation_task["task"] = inputs["task"]
+            return {"output": "código gerado"}
+
+    def fake_create_agent(role, output_schema=None):
+        assert role == "dev_frontend"
+        assert output_schema is DesignPlan
+        return _FakePlanner()
+
+    def fake_create_agent_with_tools(role, tools):
+        assert role == "dev_frontend"
+        return _FakeImplementer()
+
+    monkeypatch.setattr(team, "create_agent", fake_create_agent)
+    monkeypatch.setattr(team, "create_agent_with_tools", fake_create_agent_with_tools)
+
+    plan, output_text = team.run_frontend_task("crie a tela de login", tools=[])
+
+    assert plan is fixed_plan
+    assert output_text == "código gerado"
+    assert "Fraunces" in captured_implementation_task["task"]
+    assert "crie a tela de login" in captured_implementation_task["task"]

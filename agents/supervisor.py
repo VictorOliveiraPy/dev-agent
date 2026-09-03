@@ -16,7 +16,12 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from agents.llm import build_chat_model
 from agents.schemas import ArchitecturePlan, Decision
-from agents.team import create_agent, create_agent_with_tools
+from agents.team import (
+    create_agent,
+    create_agent_with_tools,
+    extract_agent_output_text,
+    run_frontend_task,
+)
 from agents.tools import list_dir, read_file, run_command, write_file
 
 logger = logging.getLogger(__name__)
@@ -74,17 +79,31 @@ def _run_architect(instruction: str) -> str:
 
 
 def _run_role_with_tools(role: str, instruction: str) -> str:
-    """Aciona um especialista com tools (dev_backend/dev_frontend) e resume o resultado."""
+    """Aciona um especialista com tools (hoje só dev_backend — dev_frontend
+    tem seu próprio fluxo, ver `_run_frontend`) e resume o resultado.
+    """
     agent = create_agent_with_tools(role, DEFAULT_TOOLS)
     result = agent.invoke({"task": instruction})
-    output_text = result["output"]
-
-    # A última mensagem do modelo pode vir como lista de content blocks
-    # (thinking + texto) em vez de string pronta — normalizamos aqui.
-    if isinstance(output_text, list):
-        output_text = "".join(b.get("text", "") for b in output_text if b.get("type") == "text")
-
+    output_text = extract_agent_output_text(result)
     return f"[{role}] instrução: {instruction}\nresultado: {output_text[:500]}"
+
+
+def _run_frontend(instruction: str) -> str:
+    """Aciona o dev_frontend em duas etapas (ver `agents.team.run_frontend_task`):
+    primeiro decide um DesignPlan estruturado (paleta, tipografia, layout —
+    standards/design.md), depois implementa já seguindo esse plano.
+
+    O resumo que vai pro histórico do Supervisor inclui o plano decidido —
+    assim, se o Supervisor mandar o dev_frontend fazer uma SEGUNDA tela
+    depois, o histórico já mostra a paleta/tipografia escolhidas, em vez de
+    cada tela decidir a própria identidade visual do zero.
+    """
+    plan, output_text = run_frontend_task(instruction, DEFAULT_TOOLS)
+    return (
+        f"[dev_frontend] instrução: {instruction}\n"
+        f"{plan.to_brief()}\n"
+        f"resultado: {output_text[:500]}"
+    )
 
 
 def run(task: str) -> list[str]:
@@ -118,6 +137,8 @@ def run(task: str) -> list[str]:
 
         if decision.next_role == "arquiteto":
             summary = _run_architect(decision.instruction)
+        elif decision.next_role == "dev_frontend":
+            summary = _run_frontend(decision.instruction)
         elif decision.next_role in ROLES_WITH_TOOLS:
             summary = _run_role_with_tools(decision.next_role, decision.instruction)
         else:

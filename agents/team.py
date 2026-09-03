@@ -18,6 +18,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from agents.llm import build_chat_model
+from agents.schemas import DesignPlan
 from agents.usage import usage_handler
 
 # Cada entrada é o "system prompt" que define o papel dentro do time.
@@ -158,3 +159,50 @@ def create_agent_with_tools(role: str, tools: list[BaseTool]) -> Runnable:
     # Mesma ideia de create_agent: cada chamada ao modelo dentro do loop de
     # tool calling também cai no usage_log.jsonl, marcada com este papel.
     return executor.with_config(callbacks=[usage_handler], tags=[f"role:{role}"])
+
+
+def extract_agent_output_text(result: dict) -> str:
+    """Normaliza o campo 'output' de um AgentExecutor pra string.
+
+    A última mensagem do modelo pode vir como lista de content blocks
+    (thinking + texto) em vez de string pronta — helper único pra não
+    repetir esse `isinstance` em cada script de entrada (Passos 2-4).
+    """
+    output = result["output"]
+    if isinstance(output, list):
+        return "".join(block.get("text", "") for block in output if block.get("type") == "text")
+    return output
+
+
+def run_frontend_task(task: str, tools: list[BaseTool]) -> tuple[DesignPlan, str]:
+    """Executa o dev_frontend em DUAS etapas, em vez de uma só.
+
+    Etapa 1 (sem tools): o dev_frontend decide um DesignPlan estruturado
+    (paleta, tipografia, conceito de layout — ver
+    standards/design.md::"Decida a paleta e a tipografia ANTES do código").
+    Etapa 2 (com tools): o dev_frontend implementa o código de verdade,
+    recebendo o plano da etapa 1 já pronto (via `DesignPlan.to_brief()`)
+    como parte da própria tarefa — não decide cor/fonte de novo componente
+    a componente, só segue o que já foi decidido.
+
+    Args:
+        task: descrição da tarefa de frontend, em linguagem natural.
+        tools: tools que a etapa de implementação pode usar (ex:
+            write_file, read_file).
+
+    Returns:
+        Uma tupla `(plano_decidido, texto_de_saida_da_implementacao)`.
+    """
+    planner = create_agent("dev_frontend", output_schema=DesignPlan)
+    plan = planner.invoke({
+        "task": (
+            "Antes de implementar qualquer componente, decida o design "
+            f"system (paleta, tipografia, layout) para esta tarefa:\n{task}"
+        )
+    })
+
+    implementation_task = f"{plan.to_brief()}\n\nTarefa:\n{task}"
+    agent = create_agent_with_tools("dev_frontend", tools)
+    result = agent.invoke({"task": implementation_task})
+
+    return plan, extract_agent_output_text(result)

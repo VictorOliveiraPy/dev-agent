@@ -18,7 +18,7 @@ from agents.project_tools import (
     run_project_command,
     write_project_file,
 )
-from agents.team import create_agent_with_tools
+from agents.team import create_agent_with_tools, extract_agent_output_text
 
 PROJECT_TOOLS = [write_project_file, read_project_file, list_project_dir, run_project_command]
 
@@ -27,11 +27,7 @@ def demo(task: str) -> str:
     """Executa o Dev Backend (com acesso ao código real) sobre uma tarefa."""
     agent = create_agent_with_tools("dev_backend", PROJECT_TOOLS)
     result = agent.invoke({"task": task})
-    output_text = result["output"]
-
-    if isinstance(output_text, list):
-        output_text = "".join(b.get("text", "") for b in output_text if b.get("type") == "text")
-    return output_text
+    return extract_agent_output_text(result)
 
 
 if __name__ == "__main__":

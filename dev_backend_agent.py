@@ -3,7 +3,7 @@ verdade — escreve arquivos dentro do workspace/ do projeto, em vez de só
 descrever o que faria (como no Passo 1, em main.py).
 """
 
-from agents.team import create_agent_with_tools
+from agents.team import create_agent_with_tools, extract_agent_output_text
 from agents.tools import list_dir, read_file, run_command, write_file
 
 BACKEND_TOOLS = [write_file, read_file, list_dir, run_command]
@@ -13,13 +13,7 @@ def demo(task: str) -> str:
     """Executa o Dev Backend (com tools) sobre uma tarefa em linguagem natural."""
     agent = create_agent_with_tools("dev_backend", BACKEND_TOOLS)
     result = agent.invoke({"task": task})
-    output_text = result["output"]
-
-    # A última mensagem do modelo pode vir como lista de content blocks
-    # (thinking + texto) em vez de string pronta — normalizamos aqui.
-    if isinstance(output_text, list):
-        output_text = "".join(b.get("text", "") for b in output_text if b.get("type") == "text")
-    return output_text
+    return extract_agent_output_text(result)
 
 
 if __name__ == "__main__":

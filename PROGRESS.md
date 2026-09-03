@@ -108,6 +108,23 @@ auditoria de frontend, padrão de design/UX).
   interativo —, copy como material de design, os dois temas, estado
   inicial realista). Já conectado na persona do `dev_frontend`
   (`_ROLE_STANDARDS`), junto com `frontend.md`. Testado que carrega.
+- **`DesignPlan` estruturado + orquestração em duas etapas** — formaliza a
+  recomendação da skill (decidir design ANTES do código). Novo em
+  `agents/schemas.py`: `ColorToken` (hex validado por regex) e
+  `DesignPlan` (4-6 cores, 2 fontes, conceito de layout, clichês evitados;
+  método `to_brief()` renderiza o plano como instrução pro agente de
+  implementação). Nova função `agents/team.py::run_frontend_task(task,
+  tools)`: chama o `dev_frontend` sem tools pra decidir o `DesignPlan`,
+  depois com tools pra implementar já seguindo o plano — devolve
+  `(plan, texto)`. Conectado em `dev_frontend_agent.py` e em
+  `agents/supervisor.py::_run_frontend` (o resumo no histórico do
+  Supervisor agora inclui o plano decidido, então uma segunda tela na
+  mesma tarefa reaproveita a paleta em vez de decidir de novo). De
+  quebra, extraí `extract_agent_output_text` (antes duplicado 3x — em
+  `dev_backend_agent.py`, `dev_frontend_agent.py`, `supervisor.py`) pra
+  uma função só em `team.py`. Testado de ponta a ponta com stubs (sem
+  chamar `.with_structured_output()` de verdade, que exige API real) — 6
+  testes novos, 28 no total.
 
 ## Pendências / próximos passos possíveis
 
@@ -126,26 +143,17 @@ auditoria de frontend, padrão de design/UX).
 3. **Decidir um projeto real** pra equipe construir — até agora só pedidos
    de teste genéricos (login, lista de favoritos). Ficou em aberto
    propositalmente ("vou decidir na hora").
-4. **`DesignPlan` estruturado, mirando o padrão do `ArchitecturePlan`.**
-   A skill `artifact-design` recomenda esboçar um plano de design (paleta,
-   tipografia, conceito de layout) ANTES de escrever código — hoje isso
-   só existe como texto dentro de `design.md`, o modelo tem que "lembrar"
-   sozinho. Dá pra formalizar como saída estruturada
-   (`create_agent("dev_frontend", output_schema=DesignPlan)`, igual já
-   fizemos pro arquiteto) — o Supervisor guardaria o plano decidido no
-   histórico, e telas seguintes reaproveitariam a mesma paleta/tipografia
-   em vez de cada rodada decidir de novo.
-5. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
+4. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
    via tool em vez de tudo empilhado na persona) — ficaram cogitados no
    roteiro original e nunca foram construídos. `trim_messages` (LangChain,
    ainda válido/atual) é o candidato certo pro dia que isso for construído
    — as classes antigas de `langchain.memory` (`ConversationBufferWindowMemory`
    e primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-6. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+5. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
    acompanhar em tempo real durante uma execução longa (ex: o Supervisor
    rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
    é preciso atualizar a página manualmente.
-7. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
+6. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
    acima, não verificado nesta sessão.
 
 ## Gotchas importantes (não repetir)
