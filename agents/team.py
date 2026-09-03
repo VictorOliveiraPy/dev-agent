@@ -45,7 +45,7 @@ ROLES: dict[str, str] = {
 # recebe na própria persona. Um papel sem entrada aqui só vê general.md.
 _ROLE_STANDARDS: dict[str, list[str]] = {
     "dev_backend": ["backend.md"],
-    "dev_frontend": ["frontend.md"],
+    "dev_frontend": ["frontend.md", "design.md"],
 }
 
 _STANDARDS_DIR = Path(__file__).parent.parent / "standards"

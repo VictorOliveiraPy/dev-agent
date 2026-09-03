@@ -6,11 +6,12 @@ O time de tecnologia (LangChain + Claude) está montado e validado
 ponta a ponta: **Fundação → especialista com tools → segundo especialista
 → Supervisor → padrões de código próprios → refatoração pro estilo real
 → rastreamento de custos + dashboard → padronização com Pydantic →
-diretórios em inglês + CI + padrão de frontend real**. O repo já está no
-GitHub (`VictorOliveiraPy/dev-agent`), e a conta da Anthropic ficou sem
-crédito no meio do dia 02 — por isso o dia 03 foi todo em coisas que não
-custam API (correção de imprecisões técnicas, rastreamento de uso,
-dashboard, Pydantic, renomeação de diretórios, CI, auditoria de frontend).
+diretórios em inglês + CI + padrão de frontend real → padrão de design/UX**.
+O repo já está no GitHub (`VictorOliveiraPy/dev-agent`), e a conta da
+Anthropic ficou sem crédito no meio do dia 02 — por isso o dia 03 foi todo
+em coisas que não custam API (correção de imprecisões técnicas,
+rastreamento de uso, dashboard, Pydantic, renomeação de diretórios, CI,
+auditoria de frontend, padrão de design/UX).
 
 ## O que já funciona (testado de verdade, rodando)
 
@@ -97,6 +98,16 @@ dashboard, Pydantic, renomeação de diretórios, CI, auditoria de frontend).
   `dev_frontend_agent.py` já atualizados pra Next.js. **O que já rodou
   em `workspace/frontend` (Passo 3) ainda é Vite** — desatualizado, sem
   problema porque é só sandbox de teste.
+- **`standards/design.md`** — resposta a uma preocupação real do usuário:
+  IA costuma gerar frontend com "cara de IA" (genérico, sem hierarquia,
+  sem identidade, difícil de escanear). Destilado da skill própria
+  `artifact-design` (não é sobre Artifact aqui — só minerei os
+  fundamentos de design que são universais: lista de clichês pra evitar,
+  paleta/tipografia decididas ANTES do código, layout consistente,
+  usabilidade — "resumo antes do detalhe", estado interativo parece
+  interativo —, copy como material de design, os dois temas, estado
+  inicial realista). Já conectado na persona do `dev_frontend`
+  (`_ROLE_STANDARDS`), junto com `frontend.md`. Testado que carrega.
 
 ## Pendências / próximos passos possíveis
 
@@ -105,7 +116,8 @@ dashboard, Pydantic, renomeação de diretórios, CI, auditoria de frontend).
    saída estruturada do arquiteto, e a troca de frontend pra Next.js.
    Vale ver: (a) se o backend gerado reflete IDOR-safe queries, exceções
    tipadas etc.; (b) se o `ArchitecturePlan` vem preenchido direito;
-   (c) se o frontend já sai em Next.js/TypeScript; (d) vai ser a primeira
+   (c) se o frontend já sai em Next.js/TypeScript, seguindo `design.md`
+   (paleta/tipografia decididas, sem clichê de IA); (d) vai ser a primeira
    execução real aparecendo no dashboard.
 2. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
    o próprio `dev_backend` conferir se o código do time está aderente aos
@@ -114,17 +126,26 @@ dashboard, Pydantic, renomeação de diretórios, CI, auditoria de frontend).
 3. **Decidir um projeto real** pra equipe construir — até agora só pedidos
    de teste genéricos (login, lista de favoritos). Ficou em aberto
    propositalmente ("vou decidir na hora").
-4. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
+4. **`DesignPlan` estruturado, mirando o padrão do `ArchitecturePlan`.**
+   A skill `artifact-design` recomenda esboçar um plano de design (paleta,
+   tipografia, conceito de layout) ANTES de escrever código — hoje isso
+   só existe como texto dentro de `design.md`, o modelo tem que "lembrar"
+   sozinho. Dá pra formalizar como saída estruturada
+   (`create_agent("dev_frontend", output_schema=DesignPlan)`, igual já
+   fizemos pro arquiteto) — o Supervisor guardaria o plano decidido no
+   histórico, e telas seguintes reaproveitariam a mesma paleta/tipografia
+   em vez de cada rodada decidir de novo.
+5. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
    via tool em vez de tudo empilhado na persona) — ficaram cogitados no
    roteiro original e nunca foram construídos. `trim_messages` (LangChain,
    ainda válido/atual) é o candidato certo pro dia que isso for construído
    — as classes antigas de `langchain.memory` (`ConversationBufferWindowMemory`
    e primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-5. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+6. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
    acompanhar em tempo real durante uma execução longa (ex: o Supervisor
    rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
    é preciso atualizar a página manualmente.
-6. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
+7. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
    acima, não verificado nesta sessão.
 
 ## Gotchas importantes (não repetir)

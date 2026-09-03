@@ -21,7 +21,9 @@ backend, frontend — sozinho ou orquestrado por um Supervisor.
 Cada papel carrega automaticamente os padrões de `standards/*.md` na própria
 persona (`agents/team.py::_build_persona`) — edite esses arquivos
 livremente, nenhum código Python precisa mudar. Ver `standards/general.md`
-(regras gerais) e `standards/backend.md` (destilado de dois backends FastAPI
+(regras gerais), `standards/design.md` (UX/identidade visual — evita a
+"cara de feito por IA", destilado da skill `artifact-design`) e
+`standards/backend.md` (destilado de dois backends FastAPI
 reais em produção).
 
 ## Setup
