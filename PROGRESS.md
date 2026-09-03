@@ -8,13 +8,21 @@ ponta a ponta: **Fundação → especialista com tools → segundo especialista
 → rastreamento de custos + dashboard → padronização com Pydantic →
 diretórios em inglês + CI + padrão de frontend real → padrão de design/UX
 → DesignPlan estruturado → RAG sob demanda (`search_standards`) →
-prompt caching (`cost-optimize`)**. O repo já está no GitHub
-(`VictorOliveiraPy/dev-agent`), e a conta da Anthropic
-ficou sem crédito no meio do dia 02 — por isso o dia 03 foi todo em coisas
-que não custam API (correção de imprecisões técnicas, rastreamento de
-uso, dashboard, Pydantic, renomeação de diretórios, CI, auditoria de
-frontend, padrão de design/UX, DesignPlan, RAG). Ver também
-ARCHITECTURE.md, que documenta as decisões e o porquê de cada uma.
+prompt caching (`cost-optimize`) → sandbox configurável pra projeto
+real**. O repo já está no GitHub (`VictorOliveiraPy/dev-agent`), e a
+conta da Anthropic ficou sem crédito no meio do dia 02 — por isso o dia
+03 foi todo em coisas que não custam API. Ver também ARCHITECTURE.md,
+que documenta as decisões e o porquê de cada uma.
+
+**🚀 PRONTO PRA RODAR ASSIM QUE O CRÉDITO VOLTAR:** o usuário definiu o
+primeiro projeto REAL do time — **`fe-catolica`**, uma plataforma sobre a
+Igreja Católica (santos, papas, milagres eucarísticos, catecismo, crisma,
+história da Igreja, doutores da Igreja, concílios), com prioridade em
+estrutura/navegação/busca completas antes de aprofundar cada categoria.
+Repositório git próprio já criado em
+`/home/oliveira/Documentos/code/fe-catolica`. Comando pra rodar:
+`.venv/bin/python build_fe_catolica.py` (dentro de `dev-agent/`). Ver
+seção dedicada abaixo.
 
 ## O que já funciona (testado de verdade, rodando)
 
@@ -159,41 +167,77 @@ ARCHITECTURE.md, que documenta as decisões e o porquê de cada uma.
   (`usage.cache_read_input_tokens > 0`), pendente de crédito. 2 testes
   novos, 35 no total. Effort menor no roteador e modelo mais barato foram propostos mas NÃO
   aplicados — exigem um eval que não temos (ver ARCHITECTURE.md).
+- **Sandbox de produto configurável (`DEV_AGENT_WORKSPACE`)** —
+  `agents/tools.py::_resolve_workspace()` lê essa env var (senão cai no
+  `workspace/` padrão), lida uma única vez na importação. Permite um
+  script de entrada apontar o time pra um projeto real, com git próprio,
+  em vez da sandbox descartável. Testado (escrita real confirmada em
+  `/home/oliveira/Documentos/code/fe-catolica`, depois limpa). 2 testes
+  novos, 37 no total.
+
+## 🚀 Projeto real: fe-catolica
+
+Primeiro projeto de verdade do time (não mais teste genérico). Decidido
+com o usuário em 2026-09-03:
+
+- **O quê**: plataforma sobre a Igreja Católica — Santos (e histórias),
+  Papas, Milagres Eucarísticos registrados, Catecismo, Crisma, História
+  da Igreja, Doutores da Igreja, Concílios.
+- **Escopo v1** (escolha explícita do usuário): estrutura completa
+  primeiro — todas as categorias navegáveis e buscáveis, com 2-3
+  exemplos reais por categoria — não um catálogo extenso ainda.
+  Aprofundar categoria por categoria vem depois.
+- **Cuidado de conteúdo**: a tarefa (`build_fe_catolica.py::TASK`) pede
+  fatos amplamente conhecidos e não controversos como exemplo, proíbe
+  inventar detalhe incerto (data, local), e pede que fique explícito nos
+  dados que são exemplos iniciais a expandir — mitigação deliberada
+  contra alucinação em conteúdo religioso/histórico real.
+- **Onde**: `/home/oliveira/Documentos/code/fe-catolica`, repositório git
+  próprio (separado do dev-agent), já criado (`git init`, vazio).
+- **Como rodar**: `.venv/bin/python build_fe_catolica.py` (dentro de
+  `dev-agent/`) — dispara o Supervisor completo
+  (`MAX_ROUNDS` subiu de 6 pra 10 pra essa tarefa maior).
+- **Ainda não rodado** — esperando o usuário confirmar que o crédito da
+  Anthropic voltou.
 
 ## Pendências / próximos passos possíveis
 
-1. **Rodar `team_supervisor.py` de novo** — a última execução ponta a
-   ponta foi ANTES de tudo que rigorizamos depois: `standards/backend.md`,
-   saída estruturada do arquiteto, e a troca de frontend pra Next.js.
-   Vale ver: (a) se o backend gerado reflete IDOR-safe queries, exceções
-   tipadas etc.; (b) se o `ArchitecturePlan` vem preenchido direito;
-   (c) se o frontend já sai em Next.js/TypeScript, seguindo `design.md`
-   (paleta/tipografia decididas, sem clichê de IA); (d) se algum papel
-   usa `search_standards` sozinho, sem eu ter pedido; (e) vai ser a
-   primeira execução real aparecendo no dashboard.
-2. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
+1. **Rodar `build_fe_catolica.py`** assim que houver crédito — é a
+   prioridade agora, à frente do item genérico de re-testar
+   `team_supervisor.py` (o próprio fe-catolica já serve como esse teste,
+   com um propósito real).
+2. **Revisar o conteúdo gerado com olho crítico antes de considerar
+   "pronto"** — mesmo com a mitigação na tarefa, fatos religiosos/
+   históricos gerados por LLM merecem checagem humana antes de virar
+   parte pública da plataforma.
+3. **Rodar `team_supervisor.py` de novo** (tarefa de teste genérica,
+   menor prioridade que o item 1) — a última execução ponta a ponta foi
+   ANTES de tudo que rigorizamos depois: `standards/backend.md`, saída
+   estruturada do arquiteto, e a troca de frontend pra Next.js. Vale ver:
+   (a) se o backend gerado reflete IDOR-safe queries, exceções tipadas
+   etc.; (b) se o `ArchitecturePlan` vem preenchido direito; (c) se o
+   frontend já sai em Next.js/TypeScript, seguindo `design.md`; (d) se
+   algum papel usa `search_standards` sozinho, sem eu ter pedido.
+4. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
    o próprio `dev_backend` conferir se o código do time está aderente aos
    padrões, do ponto de vista dele — inclui checar os paths novos
    (`agents/`, `standards/`) e o `.github/workflows/ci.yml`.
-3. **Decidir um projeto real** pra equipe construir — até agora só pedidos
-   de teste genéricos (login, lista de favoritos). Ficou em aberto
-   propositalmente ("vou decidir na hora").
-4. **Memória entre execuções** — ainda não construída. `trim_messages`
+5. **Memória entre execuções** — ainda não construída. `trim_messages`
    (LangChain, ainda válido/atual) é o candidato certo — as classes
    antigas de `langchain.memory` (`ConversationBufferWindowMemory` e
    primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-5. **RAG sob demanda — parcialmente feito.** `search_standards` existe e
-   funciona (item acima), mas hoje é ADITIVO: a persona ainda empilha o
-   `.md` inteiro E tem a tool. A decisão de ir além — persona enxuta
-   (só um resumo) + a tool vira a única fonte da regra detalhada — foi
-   propositalmente adiada (ver ARCHITECTURE.md): sem crédito de API pra
-   testar se o modelo usa a tool o suficiente sem a rede de segurança do
-   contexto stuffado, é arriscado trocar agora.
-6. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+6. **RAG sob demanda — parcialmente feito.** `search_standards` existe e
+   funciona, mas hoje é ADITIVO: a persona ainda empilha o `.md` inteiro
+   E tem a tool. A decisão de ir além — persona enxuta (só um resumo) +
+   a tool vira a única fonte da regra detalhada — foi propositalmente
+   adiada (ver ARCHITECTURE.md): sem crédito de API pra testar se o
+   modelo usa a tool o suficiente sem a rede de segurança do contexto
+   stuffado, é arriscado trocar agora.
+7. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
    acompanhar em tempo real durante uma execução longa (ex: o Supervisor
    rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
    é preciso atualizar a página manualmente.
-7. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
+8. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
    acima, não verificado nesta sessão.
 
 ## Gotchas importantes (não repetir)

@@ -82,11 +82,22 @@ agente é" (persona) fica separado do "que convenções ele segue"
 ### Segurança
 
 **Duas sandboxes de tool separadas, nunca uma tool com acesso irrestrito
-ao disco.** `agents/tools.py` só enxerga `workspace/` (o produto gerado);
-`agents/project_tools.py` só enxerga a raiz do projeto real, com
-bloqueio explícito de `.env`/`.git`/`.venv`/`workspace` — usado só pra
-auto-manutenção pontual (`refactor_team.py`), nunca pelo time em operação
-normal.
+ao disco.** `agents/tools.py` só enxerga a sandbox de produto (por padrão
+`workspace/`, o descartável); `agents/project_tools.py` só enxerga a raiz
+do dev-agent, com bloqueio explícito de `.env`/`.git`/`.venv`/`workspace`
+— usado só pra auto-manutenção pontual (`refactor_team.py`), nunca pelo
+time em operação normal.
+
+**Sandbox de produto configurável via `DEV_AGENT_WORKSPACE`, lida uma
+única vez na importação.** O primeiro projeto real do time (`fe-catolica`)
+precisava sair de um lugar keepable, com git próprio — não da sandbox
+descartável de teste. Em vez de criar um terceiro conjunto de tools,
+`agents/tools.py::_resolve_workspace()` lê essa env var (senão cai no
+`workspace/` padrão); um script de entrada dedicado
+(`build_fe_catolica.py`) define a env var ANTES de importar qualquer
+coisa de `agents`. Ler uma única vez, na importação, é proposital: a
+sandbox nunca muda no meio de uma execução, mesmo que algo mexa na env
+var depois.
 
 **Checkpoint git antes de qualquer sessão que dê a um agente acesso de
 escrita ao código real.** Um agente reescrevendo o próprio código-fonte

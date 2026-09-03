@@ -6,17 +6,34 @@ O modelo NUNCA executa estas funções diretamente: ele só decide "quero
 chamar write_file com esses argumentos" (tool_use). Quem executa é o
 AgentExecutor, chamando a função Python de fato.
 
-SEGURANÇA: todas as tools são restritas a uma pasta sandbox (`workspace/`)
-na raiz do projeto — nunca ao sistema de arquivos inteiro.
+SEGURANÇA: todas as tools são restritas a uma pasta sandbox — nunca ao
+sistema de arquivos inteiro. Por padrão essa sandbox é `workspace/` (a
+pasta de teste descartável do próprio dev-agent), mas um script de
+entrada pode apontar pra um projeto real de verdade definindo a variável
+de ambiente `DEV_AGENT_WORKSPACE` ANTES de importar este módulo (ver
+`build_fe_catolica.py` para um exemplo) — a raiz é lida uma única vez, na
+importação, de propósito: a sandbox nunca muda no meio de uma execução.
 """
 
+import os
 import subprocess
 from pathlib import Path
 
 from langchain_core.tools import tool
 
-WORKSPACE = (Path(__file__).parent.parent / "workspace").resolve()
-WORKSPACE.mkdir(exist_ok=True)
+
+def _resolve_workspace() -> Path:
+    """Decide a raiz da sandbox: `DEV_AGENT_WORKSPACE` (projeto real) ou o
+    `workspace/` padrão do dev-agent (usado nos testes e exemplos).
+    """
+    custom = os.environ.get("DEV_AGENT_WORKSPACE")
+    if custom:
+        return Path(custom).resolve()
+    return (Path(__file__).parent.parent / "workspace").resolve()
+
+
+WORKSPACE = _resolve_workspace()
+WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 
 def _safe_path(relative_path: str) -> Path:

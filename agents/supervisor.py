@@ -33,7 +33,10 @@ DEFAULT_TOOLS = [write_file, read_file, list_dir, run_command, search_standards]
 # (com saída estruturada — ver ArchitecturePlan).
 ROLES_WITH_TOOLS = {"dev_backend", "dev_frontend"}
 
-MAX_ROUNDS = 6
+# 6 bastava pra tarefas de teste (login, favoritos — 1 tela). Uma tarefa
+# real com várias seções de conteúdo (ex: fe-catolica) plausivelmente
+# precisa de mais idas e vindas entre arquiteto/backend/frontend.
+MAX_ROUNDS = 10
 
 
 _ROUTER_PROMPT = ChatPromptTemplate.from_messages([
