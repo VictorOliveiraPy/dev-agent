@@ -10,10 +10,11 @@ Passo 4 (Supervisor): times reais coordenam trabalho consultando o que os
 outros membros já fizeram, não trabalhando às cegas.
 """
 
+from agents.knowledge import search_standards
 from agents.team import run_frontend_task
 from agents.tools import list_dir, read_file, run_command, write_file
 
-FRONTEND_TOOLS = [write_file, read_file, list_dir, run_command]
+FRONTEND_TOOLS = [write_file, read_file, list_dir, run_command, search_standards]
 
 
 def demo(task: str) -> str:

@@ -3,10 +3,11 @@ verdade — escreve arquivos dentro do workspace/ do projeto, em vez de só
 descrever o que faria (como no Passo 1, em main.py).
 """
 
+from agents.knowledge import search_standards
 from agents.team import create_agent_with_tools, extract_agent_output_text
 from agents.tools import list_dir, read_file, run_command, write_file
 
-BACKEND_TOOLS = [write_file, read_file, list_dir, run_command]
+BACKEND_TOOLS = [write_file, read_file, list_dir, run_command, search_standards]
 
 
 def demo(task: str) -> str:

@@ -6,12 +6,14 @@ O time de tecnologia (LangChain + Claude) está montado e validado
 ponta a ponta: **Fundação → especialista com tools → segundo especialista
 → Supervisor → padrões de código próprios → refatoração pro estilo real
 → rastreamento de custos + dashboard → padronização com Pydantic →
-diretórios em inglês + CI + padrão de frontend real → padrão de design/UX**.
-O repo já está no GitHub (`VictorOliveiraPy/dev-agent`), e a conta da
-Anthropic ficou sem crédito no meio do dia 02 — por isso o dia 03 foi todo
-em coisas que não custam API (correção de imprecisões técnicas,
-rastreamento de uso, dashboard, Pydantic, renomeação de diretórios, CI,
-auditoria de frontend, padrão de design/UX).
+diretórios em inglês + CI + padrão de frontend real → padrão de design/UX
+→ DesignPlan estruturado → RAG sob demanda (`search_standards`)**. O repo
+já está no GitHub (`VictorOliveiraPy/dev-agent`), e a conta da Anthropic
+ficou sem crédito no meio do dia 02 — por isso o dia 03 foi todo em coisas
+que não custam API (correção de imprecisões técnicas, rastreamento de
+uso, dashboard, Pydantic, renomeação de diretórios, CI, auditoria de
+frontend, padrão de design/UX, DesignPlan, RAG). Ver também
+ARCHITECTURE.md, que documenta as decisões e o porquê de cada uma.
 
 ## O que já funciona (testado de verdade, rodando)
 
@@ -125,6 +127,21 @@ auditoria de frontend, padrão de design/UX).
   uma função só em `team.py`. Testado de ponta a ponta com stubs (sem
   chamar `.with_structured_output()` de verdade, que exige API real) — 6
   testes novos, 28 no total.
+- **`search_standards` — RAG sob demanda sobre `standards/*.md`, via BM25**
+  (`agents/knowledge.py`). Decisão consciente: BM25 (busca por
+  palavra-chave, `rank_bm25`, puro Python) em vez de embeddings
+  semânticos (sentence-transformers + PyTorch, 100-800MB de download) —
+  nosso corpus é pequeno e o vocabulário é técnico/específico ("IDOR",
+  "JWT", "rounded-lg"), onde BM25 funciona bem sem gastar API nem baixar
+  modelo pesado. Detalhe real encontrado testando contra os `.md` de
+  verdade: um tokenizador ingênuo (`.split()`) gruda pontuação de
+  markdown na palavra (`**idor` em vez de `idor`) e a busca erra o alvo —
+  corrigido com um tokenizador por regex. Também descobrimos uma
+  degenerescência matemática do BM25: com um corpus de só 2 documentos,
+  um termo presente em exatamente 1 deles (50%) zera o IDF pela fórmula
+  clássica — documentado no teste, não é bug. Conectada como tool de
+  `dev_backend`/`dev_frontend`/Supervisor, somando às tools de arquivo.
+  5 testes novos, 33 no total. Ver ARCHITECTURE.md para a decisão completa.
 
 ## Pendências / próximos passos possíveis
 
@@ -134,8 +151,9 @@ auditoria de frontend, padrão de design/UX).
    Vale ver: (a) se o backend gerado reflete IDOR-safe queries, exceções
    tipadas etc.; (b) se o `ArchitecturePlan` vem preenchido direito;
    (c) se o frontend já sai em Next.js/TypeScript, seguindo `design.md`
-   (paleta/tipografia decididas, sem clichê de IA); (d) vai ser a primeira
-   execução real aparecendo no dashboard.
+   (paleta/tipografia decididas, sem clichê de IA); (d) se algum papel
+   usa `search_standards` sozinho, sem eu ter pedido; (e) vai ser a
+   primeira execução real aparecendo no dashboard.
 2. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
    o próprio `dev_backend` conferir se o código do time está aderente aos
    padrões, do ponto de vista dele — inclui checar os paths novos
@@ -143,17 +161,22 @@ auditoria de frontend, padrão de design/UX).
 3. **Decidir um projeto real** pra equipe construir — até agora só pedidos
    de teste genéricos (login, lista de favoritos). Ficou em aberto
    propositalmente ("vou decidir na hora").
-4. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
-   via tool em vez de tudo empilhado na persona) — ficaram cogitados no
-   roteiro original e nunca foram construídos. `trim_messages` (LangChain,
-   ainda válido/atual) é o candidato certo pro dia que isso for construído
-   — as classes antigas de `langchain.memory` (`ConversationBufferWindowMemory`
-   e primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-5. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+4. **Memória entre execuções** — ainda não construída. `trim_messages`
+   (LangChain, ainda válido/atual) é o candidato certo — as classes
+   antigas de `langchain.memory` (`ConversationBufferWindowMemory` e
+   primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
+5. **RAG sob demanda — parcialmente feito.** `search_standards` existe e
+   funciona (item acima), mas hoje é ADITIVO: a persona ainda empilha o
+   `.md` inteiro E tem a tool. A decisão de ir além — persona enxuta
+   (só um resumo) + a tool vira a única fonte da regra detalhada — foi
+   propositalmente adiada (ver ARCHITECTURE.md): sem crédito de API pra
+   testar se o modelo usa a tool o suficiente sem a rede de segurança do
+   contexto stuffado, é arriscado trocar agora.
+6. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
    acompanhar em tempo real durante uma execução longa (ex: o Supervisor
    rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
    é preciso atualizar a página manualmente.
-6. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
+7. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
    acima, não verificado nesta sessão.
 
 ## Gotchas importantes (não repetir)

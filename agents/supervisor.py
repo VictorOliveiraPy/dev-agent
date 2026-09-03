@@ -14,6 +14,7 @@ import logging
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from agents.knowledge import search_standards
 from agents.llm import build_chat_model
 from agents.schemas import ArchitecturePlan, Decision
 from agents.team import (
@@ -26,7 +27,7 @@ from agents.tools import list_dir, read_file, run_command, write_file
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOOLS = [write_file, read_file, list_dir, run_command]
+DEFAULT_TOOLS = [write_file, read_file, list_dir, run_command, search_standards]
 
 # Só quem produz artefatos (código) precisa de tools; o arquiteto só opina
 # (com saída estruturada — ver ArchitecturePlan).

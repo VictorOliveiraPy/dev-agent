@@ -67,4 +67,5 @@ aviso de "nenhum uso registrado ainda" — é esperado.
 ```
 
 Ver [PROGRESS.md](PROGRESS.md) para o estado atual do projeto e os próximos
-passos.
+passos, e [ARCHITECTURE.md](ARCHITECTURE.md) para as decisões estruturais
+e o motivo de cada uma.
