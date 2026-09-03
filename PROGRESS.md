@@ -5,11 +5,12 @@
 O time de tecnologia (LangChain + Claude) está montado e validado
 ponta a ponta: **Fundação → especialista com tools → segundo especialista
 → Supervisor → padrões de código próprios → refatoração pro estilo real
-→ rastreamento de custos + dashboard → padronização com Pydantic**. O
-repo já está no GitHub
-(`VictorOliveiraPy/dev-agent`), e a conta da Anthropic ficou sem crédito
-no meio do dia 02 — por isso o dia 03 foi todo em coisas que não custam
-API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
+→ rastreamento de custos + dashboard → padronização com Pydantic →
+diretórios em inglês + CI + padrão de frontend real**. O repo já está no
+GitHub (`VictorOliveiraPy/dev-agent`), e a conta da Anthropic ficou sem
+crédito no meio do dia 02 — por isso o dia 03 foi todo em coisas que não
+custam API (correção de imprecisões técnicas, rastreamento de uso,
+dashboard, Pydantic, renomeação de diretórios, CI, auditoria de frontend).
 
 ## O que já funciona (testado de verdade, rodando)
 
@@ -29,9 +30,11 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   `arquiteto → dev_backend → dev_frontend → concluido`.
 - **Passos 2 e 3** (`dev_backend_agent.py`, `dev_frontend_agent.py`) já
   produziram, em teste, um backend de login completo (FastAPI, hash com
-  `hashlib`, testes próprios, pytest passando) e um frontend React
-  (Vite, `AuthContext`, telas de login/registro) que leu o backend real
-  antes de codar e detectou sozinho uma lacuna de CORS.
+  `hashlib`, testes próprios, pytest passando) e um frontend React (Vite,
+  `AuthContext`, telas de login/registro) que leu o backend real antes de
+  codar e detectou sozinho uma lacuna de CORS. **Atenção:** essa execução
+  foi ANTES da troca de stack pra Next.js (ver abaixo) — o resultado em
+  `workspace/frontend` é Vite, desatualizado em relação ao padrão atual.
 - **`standards/general.md` + `standards/backend.md`** — destilados de dois
   repos reais em produção (`melhorperfil-api`, `santo-guardiao-api`):
   arquitetura em camadas, config com `pydantic-settings`, exceções
@@ -71,39 +74,58 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   montado a partir dos campos do modelo. Testado (validação dos 4
   modelos + wiring de ponta a ponta do `usage_log.jsonl`); a saída
   estruturada do arquiteto em si só é exercitada de verdade com crédito.
+- **Diretórios renomeados pro inglês**: `agentes/` → `agents/`,
+  `padroes/` → `standards/`. `workspace/` não mudou (já era inglês). Só
+  paths/imports foram alterados — o uso da palavra "agentes" como prosa
+  em português (docstrings/comentários) foi preservado de propósito.
+  Testado (22 testes, ruff limpo, smoke test estrutural).
+- **CI** (`.github/workflows/ci.yml`) — GitHub Actions rodando
+  `ruff check .` e `pytest -q` a cada push/PR pra `main`. Confirmei
+  localmente que a suíte inteira passa sem `ANTHROPIC_API_KEY` nem
+  `.env` no ambiente (todos os testes usam chat models falsos), então
+  nenhum secret precisa ser configurado no repo. Badge de status no
+  README.md. **Não confirmei o run real no GitHub** (repo é privado e
+  não tenho `gh`/token configurado nesta sessão) — conferir na aba
+  Actions.
+- **`standards/frontend.md` auditado e reescrito** — igual foi feito com
+  o backend, mas com uma decisão importante: os dois frontends reais
+  disponíveis (`melhorperfil-web`, `santo-guardiao-web`) são **Next.js
+  (App Router) + TypeScript**, não Vite. Optamos por TROCAR o padrão do
+  time pra Next.js/TypeScript (em vez de manter Vite e só extrair
+  princípios agnósticos) — decisão explícita do usuário. Persona do
+  `dev_frontend` em `agents/team.py` e o pedido de exemplo em
+  `dev_frontend_agent.py` já atualizados pra Next.js. **O que já rodou
+  em `workspace/frontend` (Passo 3) ainda é Vite** — desatualizado, sem
+  problema porque é só sandbox de teste.
 
 ## Pendências / próximos passos possíveis
 
 1. **Rodar `team_supervisor.py` de novo** — a última execução ponta a
-   ponta foi ANTES da rigorização de `standards/backend.md` E antes da
-   saída estruturada do arquiteto. Vale ver: (a) se o código gerado
-   reflete IDOR-safe queries, exceções tipadas etc.; (b) se o
-   `ArchitecturePlan` vem preenchido direito; (c) vai ser a primeira
+   ponta foi ANTES de tudo que rigorizamos depois: `standards/backend.md`,
+   saída estruturada do arquiteto, e a troca de frontend pra Next.js.
+   Vale ver: (a) se o backend gerado reflete IDOR-safe queries, exceções
+   tipadas etc.; (b) se o `ArchitecturePlan` vem preenchido direito;
+   (c) se o frontend já sai em Next.js/TypeScript; (d) vai ser a primeira
    execução real aparecendo no dashboard.
 2. **Rodar `refactor_team.py`** (virou uma auditoria só-leitura) pra ver
-   o próprio `dev_backend` conferir se a refatoração manual de hoje ficou
-   aderente aos padrões, do ponto de vista dele.
+   o próprio `dev_backend` conferir se o código do time está aderente aos
+   padrões, do ponto de vista dele — inclui checar os paths novos
+   (`agents/`, `standards/`) e o `.github/workflows/ci.yml`.
 3. **Decidir um projeto real** pra equipe construir — até agora só pedidos
    de teste genéricos (login, lista de favoritos). Ficou em aberto
    propositalmente ("vou decidir na hora").
-4. **`standards/frontend.md` ainda é só baseline**, não foi auditado contra
-   um frontend real em produção (dá pra fazer o mesmo processo que foi
-   feito com o backend, usando `melhorperfil-web` como fonte).
-5. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
+4. **Memória entre execuções** e **RAG sob demanda** (papéis lendo docs
    via tool em vez de tudo empilhado na persona) — ficaram cogitados no
    roteiro original e nunca foram construídos. `trim_messages` (LangChain,
    ainda válido/atual) é o candidato certo pro dia que isso for construído
    — as classes antigas de `langchain.memory` (`ConversationBufferWindowMemory`
    e primas) estão deprecadas desde 0.3.1, removal na 1.0.0.
-6. **Renomear os diretórios** `agents/`, `standards/`, `workspace/` pro
-   inglês — decisão adiada de propósito (mudança mais estrutural/arriscada
-   que renomear só identificadores de código).
-7. **CI** — agora que `ruff`/`pytest` estão configurados, dá pra subir um
-   GitHub Actions rodando os dois a cada push.
-8. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
+5. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
    acompanhar em tempo real durante uma execução longa (ex: o Supervisor
    rodando várias rodadas), dá pra explorar `st.rerun`/auto-refresh — hoje
    é preciso atualizar a página manualmente.
+6. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
+   acima, não verificado nesta sessão.
 
 ## Gotchas importantes (não repetir)
 
@@ -131,3 +153,9 @@ API (correção de imprecisões técnicas, rastreamento de uso, dashboard).
   deprecadas** desde a 0.3.1 (removal na 1.0.0) — não usar em código
   novo. O guia de migração do LangChain aponta pro padrão LCEL nativo
   (`trim_messages` + histórico gerenciado à mão).
+- **Audite a stack antes de escrever um `.md` de padrões, não depois.**
+  A auditoria de frontend quase gerou um `standards/frontend.md` rico mas
+  incompatível com os repos reais — eles são Next.js, o time já vinha
+  usando Vite. Sempre checar `package.json`/config real do projeto fonte
+  antes de destilar padrões, e decidir explicitamente se a stack do time
+  muda ou se só os princípios agnósticos são aproveitados.
