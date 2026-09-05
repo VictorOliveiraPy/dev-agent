@@ -34,6 +34,28 @@ python3 -m venv .venv
 cp .env.example .env   # preencha ANTHROPIC_API_KEY
 ```
 
+### Provedor de modelo: Claude (API) ou Ollama (local)
+
+Por padrão o time inteiro usa a API da Anthropic (`ANTHROPIC_API_KEY` no
+`.env`). Para rodar em cima de um Ollama local em vez disso — sem custo por
+token, útil para testar sem gastar API —, suba o container e troque
+`LLM_PROVIDER` no `.env`:
+
+```bash
+docker compose up -d ollama
+docker compose exec ollama ollama pull llama3.1   # baixa o modelo, uma vez
+```
+
+```bash
+# .env
+LLM_PROVIDER=ollama
+```
+
+Ver `agents/llm.py::build_chat_model` para os detalhes (inclui como forçar
+um provedor específico independente do `.env`). O papel `pesquisador`
+sempre usa Anthropic, mesmo com `LLM_PROVIDER=ollama` — ele depende da tool
+server-side `web_search`, exclusiva da API da Anthropic.
+
 ## Rodar
 
 ```bash

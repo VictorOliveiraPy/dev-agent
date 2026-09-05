@@ -1,0 +1,32 @@
+# Ollama local, para rodar papéis do time sem custo de API — ver
+# agents/llm.py::build_chat_model e .env.example (LLM_PROVIDER=ollama).
+#
+# Uso:
+#   docker compose up -d ollama
+#   docker compose exec ollama ollama pull llama3.1   # baixa o modelo (uma vez)
+#   docker compose logs -f ollama                     # acompanhar
+#
+# O .env.example já aponta OLLAMA_BASE_URL para http://localhost:11434,
+# que é a porta publicada abaixo — nenhuma outra config muda ao trocar o
+# Ollama "direto na máquina" por este container.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dev-agent-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    # Descomente se houver GPU NVIDIA + nvidia-container-toolkit instalado
+    # (senão o Ollama roda em CPU, mais lento mas funcional):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_models:

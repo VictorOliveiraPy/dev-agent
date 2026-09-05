@@ -176,7 +176,10 @@ def research_batch(
     """
     tools = [_web_search_tool(), _submit_entries_tool(item_model.model_json_schema())]
     chat_model = (
-        build_chat_model(max_tokens=max_tokens, model=model)
+        # provider="anthropic" fixo: web_search é uma tool server-side da
+        # própria Anthropic (ver docstring do módulo) — este papel não
+        # funciona com Ollama, então ignora LLM_PROVIDER de propósito.
+        build_chat_model(max_tokens=max_tokens, model=model, provider="anthropic")
         .bind_tools(tools)
         .with_config(callbacks=[usage_handler], tags=[f"role:{ROLE}"])
     )
