@@ -34,27 +34,40 @@ python3 -m venv .venv
 cp .env.example .env   # preencha ANTHROPIC_API_KEY
 ```
 
-### Provedor de modelo: Claude (API) ou Ollama (local)
+### Custo: modelo por papel, e provedores alternativos
 
-Por padrão o time inteiro usa a API da Anthropic (`ANTHROPIC_API_KEY` no
-`.env`). Para rodar em cima de um Ollama local em vez disso — sem custo por
-token, útil para testar sem gastar API —, suba o container e troque
-`LLM_PROVIDER` no `.env`:
+O `arquiteto` (só opina em texto, sem tools) usa **Claude Haiku 4.5** por
+padrão — o modelo mais barato da Anthropic ($1/$5 por milhão de tokens de
+entrada/saída, contra $5/$25 do Opus 5). `dev_backend`/`dev_frontend`
+continuam em Opus 5: escrevem arquivo de verdade via tool calling, e um
+modelo mais fraco aí arrisca código pior ou tool call malformada — custa
+mais em retrabalho do que economiza em tokens. Ver `_ROLE_MODELS` em
+`agents/team.py`.
 
-```bash
-docker compose up -d ollama
-docker compose exec ollama ollama pull llama3.1   # baixa o modelo, uma vez
-```
+Por padrão o time chama a API da Anthropic direto (`ANTHROPIC_API_KEY` no
+`.env`). Dois provedores alternativos estão disponíveis, trocando
+`LLM_PROVIDER` no `.env` — nenhum dos dois é o padrão, e o papel
+`pesquisador` nunca os usa (depende da tool server-side `web_search`,
+exclusiva da API da Anthropic):
 
-```bash
-# .env
-LLM_PROVIDER=ollama
-```
+- **Ollama local** (`LLM_PROVIDER=ollama`) — sem custo por token, mas já
+  testamos (`llama3.1:8b`, `qwen2.5-coder:7b`) e nenhum dos dois é
+  confiável o bastante pra escrever arquivo de verdade (ver
+  ARCHITECTURE.md). Serve pra papel de rascunho/opinião, não pra
+  `dev_backend`/`dev_frontend`.
+
+  ```bash
+  docker compose up -d ollama
+  docker compose exec ollama ollama pull llama3.1   # baixa o modelo, uma vez
+  ```
+
+- **OpenRouter** (`LLM_PROVIDER=openrouter`) — uma chave só, formato
+  OpenAI-compatible, troca de modelo (inclusive opções gratuitas) mudando
+  `OPENROUTER_MODEL` no `.env`. Preencha `OPENROUTER_API_KEY` (chave em
+  https://openrouter.ai/keys).
 
 Ver `agents/llm.py::build_chat_model` para os detalhes (inclui como forçar
-um provedor específico independente do `.env`). O papel `pesquisador`
-sempre usa Anthropic, mesmo com `LLM_PROVIDER=ollama` — ele depende da tool
-server-side `web_search`, exclusiva da API da Anthropic.
+um provedor específico independente do `.env`).
 
 ## Rodar
 
@@ -65,6 +78,21 @@ server-side `web_search`, exclusiva da API da Anthropic.
 .venv/bin/python team_supervisor.py     # Passo 4: supervisor orquestrando o time
 .venv/bin/python refactor_team.py       # auditoria (só leitura) do próprio código do time
 ```
+
+## Interface web — rodar o time e acompanhar a conversa ao vivo
+
+```bash
+.venv/bin/streamlit run web_ui.py
+```
+
+Um formulário (com exemplos prontos na barra lateral) pra digitar a tarefa
+e um botão "▶️ Rodar" — a partir daí a "conversa" do time aparece ao vivo,
+uma bolha de chat por evento: a decisão do supervisor (qual papel aciona e
+por quê) seguida do resultado de cada especialista, na ordem em que
+acontecem (`agents/supervisor.py::run` é um gerador — ver docstring). Ao
+final, mostra quantos tokens aquela rodada específica gastou (comparando
+`usage_log.jsonl` antes/depois). **Cada rodada faz chamadas reais à API —
+custo de verdade**, não uma simulação.
 
 ## Custos — dashboard de uso de tokens
 

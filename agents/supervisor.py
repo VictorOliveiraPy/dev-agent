@@ -11,6 +11,7 @@ implementação de cada área.
 """
 
 import logging
+from collections.abc import Iterator
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -110,16 +111,32 @@ def _run_frontend(instruction: str) -> str:
     )
 
 
-def run(task: str) -> list[str]:
+def run(task: str) -> Iterator[str]:
     """Roda o loop supervisor -> especialista até a tarefa ser concluída.
+
+    É um GERADOR, não uma função que devolve tudo de uma vez: cada entrada
+    (decisão do supervisor, depois resultado do especialista) é entregue
+    assim que acontece, o que permite acompanhar a "conversa" do time em
+    tempo real (ver `web_ui.py`) em vez de só ver o resultado final depois
+    de todas as rodadas rodarem. Quem só quer o histórico completo continua
+    funcionando igual (`list(run(task))` ou um `for` simples — ver
+    `team_supervisor.py`).
 
     Args:
         task: descrição do que o time deve entregar.
 
-    Returns:
-        O histórico de ações executadas (uma entrada por rodada), na ordem
-        em que aconteceram.
+    Yields:
+        Uma entrada por evento: a decisão do supervisor (`"[supervisor]
+        próximo: ..."`) e o resumo de cada especialista acionado, na ordem
+        em que acontecem.
     """
+    # Histórico interno, passado de volta pro roteador a cada rodada — só
+    # decisões de especialista (arquiteto/backend/frontend) e avisos
+    # terminais entram aqui. A linha de "próximo: X — motivo" (yielded logo
+    # abaixo) fica FORA de propósito: é comentário do supervisor sobre a
+    # própria decisão, não um resultado de trabalho — incluí-la faria o
+    # roteador ler sua própria justificativa anterior como se fosse um fato
+    # já realizado.
     history: list[str] = []
 
     for round_num in range(1, MAX_ROUNDS + 1):
@@ -136,8 +153,12 @@ def run(task: str) -> list[str]:
         )
 
         if decision.next_role == "concluido":
-            history.append("[supervisor] Deu a tarefa como concluída.")
+            entry = "[supervisor] Deu a tarefa como concluída."
+            history.append(entry)
+            yield entry
             break
+
+        yield f"[supervisor] próximo: {decision.next_role} — {decision.reasoning}"
 
         if decision.next_role == "arquiteto":
             summary = _run_architect(decision.instruction)
@@ -154,7 +175,8 @@ def run(task: str) -> list[str]:
             )
 
         history.append(summary)
+        yield summary
     else:
-        history.append(f"[supervisor] Parou por atingir o limite de {MAX_ROUNDS} rodadas.")
-
-    return history
+        entry = f"[supervisor] Parou por atingir o limite de {MAX_ROUNDS} rodadas."
+        history.append(entry)
+        yield entry

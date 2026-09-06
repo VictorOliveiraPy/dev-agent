@@ -50,6 +50,18 @@ _ROLE_STANDARDS: dict[str, list[str]] = {
     "dev_frontend": ["frontend.md", "design.md"],
 }
 
+# Papéis que usam um modelo mais barato que o padrão (Opus 5) — só o
+# arquiteto, que apenas opina em texto (sem tools, sem escrever arquivo).
+# dev_backend/dev_frontend ficam de fora de propósito: escrevem arquivo de
+# verdade via tool calling (create_agent_with_tools), e um modelo mais fraco
+# aí arrisca código pior ou tool call malformada — custa mais em retrabalho
+# do que economiza em tokens (mesmo risco que já vimos ao testar Ollama
+# local, ver agents/llm.py). Um papel sem entrada aqui usa o padrão da
+# fábrica de modelo (Opus 5, ou o que `LLM_PROVIDER` apontar).
+_ROLE_MODELS: dict[str, str] = {
+    "arquiteto": "claude-haiku-4-5",
+}
+
 _STANDARDS_DIR = Path(__file__).parent.parent / "standards"
 
 
@@ -128,7 +140,7 @@ def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Run
         _system_message(persona),
         ("human", "{task}"),
     ])
-    model = build_chat_model()
+    model = build_chat_model(model=_ROLE_MODELS.get(role))
 
     if output_schema is not None:
         chain = prompt | model.with_structured_output(output_schema)
