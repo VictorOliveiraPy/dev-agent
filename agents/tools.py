@@ -11,8 +11,9 @@ sistema de arquivos inteiro. Por padrão essa sandbox é `workspace/` (a
 pasta de teste descartável do próprio dev-agent), mas um script de
 entrada pode apontar pra um projeto real de verdade definindo a variável
 de ambiente `DEV_AGENT_WORKSPACE` ANTES de importar este módulo (ver
-`build_fe_catolica.py` para um exemplo) — a raiz é lida uma única vez, na
-importação, de propósito: a sandbox nunca muda no meio de uma execução.
+`projects/build_fe_catolica.py` para um exemplo) — a raiz é lida uma única
+vez, na importação, de propósito: a sandbox nunca muda no meio de uma
+execução.
 """
 
 import os

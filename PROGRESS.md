@@ -1,4 +1,4 @@
-# Progresso — sessões de 2026-09-02 e 2026-09-03
+# Progresso — sessões de 2026-09-02, 2026-09-03 e 2026-09-06
 
 ## Onde paramos
 
@@ -448,10 +448,11 @@ custo da Anthropic pra este papel voltar a incomodar.
    sentido. Ainda é ADITIVO (a persona segue empilhando o `.md` inteiro
    também); ir além (persona enxuta + tool como única fonte) continua
    adiado por ora.
-8. **Dashboard só mostra o que já aconteceu.** Se um dia fizer sentido
-   acompanhar em tempo real durante uma execução longa, dá pra explorar
-   `st.rerun`/auto-refresh — hoje é preciso atualizar a página
-   manualmente.
+8. ✅ **Dashboard só mostra o que já aconteceu** — resolvido em
+   2026-09-06 com `web_ui.py`: `agents/supervisor.py::run` virou gerador
+   e a Streamlit UI mostra cada rodada ao vivo, sem precisar de
+   auto-refresh no `dashboard.py` original (que continua só pra
+   custo/histórico agregado). Ver seção "Interface web" abaixo.
 9. **Confirmar o primeiro run do CI no GitHub** (Actions tab) — ver nota
    acima, não verificado nesta sessão.
 
@@ -510,3 +511,50 @@ custo da Anthropic pra este papel voltar a incomodar.
   inconsistência que só existe porque o modelo tinha esse campo pra
   preencher. `validate_batch` agora recalcula `id` sempre, ignorando o
   que vem na resposta.
+
+## Sessão de 2026-09-06 — modelo mais barato, interface web, organização
+
+**Contexto**: a conta da Anthropic ficou sem crédito de novo no meio da
+sessão (mesmo gotcha de 02/09, recorrente) — não impediu o trabalho
+porque quase tudo abaixo é wiring/decisão, testável sem crédito real
+(exceto o experimento com Ollama, que roda local).
+
+**Experimento real: Ollama local (Docker) como provedor mais barato —
+testado e revertido.** Subiu `ollama/ollama` via `docker compose`, baixou
+`llama3.1:8b` e `qwen2.5-coder:7b`, e testou os dois com
+`build_chat_model` de verdade: resposta factual + uma tool call simples
+(`write_file`). Achado real, não hipotético — `qwen2.5-coder:7b` (apesar
+do nome) devolveu o JSON da tool como TEXTO solto em vez de usar o canal
+estruturado de tool calling; `llama3.1:8b` foi inconsistente entre
+execuções no mesmo prompt. Decisão: reverter o código (`agents/llm.py`
+voltou a só `ChatAnthropic`) — a lição fica em ARCHITECTURE.md, não como
+provedor morto no repo. OpenRouter (adicionado junto, nunca testado de
+verdade) foi removido pelo mesmo motivo de simplicidade.
+
+**Modelo mais barato aplicado de verdade, mas só onde o risco é baixo.**
+`arquiteto` (só texto/`ArchitecturePlan`, sem tools) passou a usar Claude
+Haiku 4.5 — mais barato ($1/$5 por milhão de tokens vs. $5/$25 do Opus
+5). `dev_backend`/`dev_frontend` continuam em Opus 5 de propósito: é
+exatamente o cenário (tool calling) onde o teste do Ollama mostrou risco
+concreto — ver ARCHITECTURE.md, seção "Custo".
+
+**`web_ui.py`: interface Streamlit pra rodar o time e ver a conversa ao
+vivo**, resolvendo a pendência #8 acima. Exigiu transformar
+`agents/supervisor.py::run` de função (devolvia a lista completa no
+final) em GERADOR (entrega cada evento assim que acontece) — e expor
+`Decision.reasoning` (já existia no schema, nunca tinha virado visível em
+lugar nenhum) como um evento próprio, sem poluir o histórico que volta
+pro roteador. `team_supervisor.py` (CLI) ganhou o mesmo streaming de
+graça, sem precisar mudar como ele chama `run()`.
+
+**Organização: `projects/*.py` separado do framework.** Os scripts que
+disparam o time em cima de um projeto real específico (fe-catolica,
+repasse-api, repassei, concílios) foram movidos pra `projects/` — não são
+o framework, são o histórico de uso dele. Rodar como módulo agora
+(`python -m projects.build_fe_catolica`), não pelo caminho do arquivo —
+Python só coloca a raiz do repo no `sys.path` (onde `agents/` resolve)
+quando o script roda com `-m` a partir da raiz.
+
+**Testes**: suíte cresceu de 33 pra 63 (novos: `test_llm.py`,
+`test_supervisor.py`, `test_web_ui.py`; `test_team.py` ganhou um caso
+pro `_ROLE_MODELS`) — nenhum chama API real, mesma convenção de sempre.

@@ -141,7 +141,8 @@ def main() -> None:
         _write_entries(valid)
         total_written += len(valid)
 
-    print(f"\nTotal gravado em {DATA_FILE}: {total_written} entradas. Revise o diff antes de commitar.")
+    print(f"\nTotal gravado em {DATA_FILE}: {total_written} entradas.")
+    print("Revise o diff antes de commitar.")
 
 
 if __name__ == "__main__":

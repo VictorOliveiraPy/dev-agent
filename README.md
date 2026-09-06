@@ -8,11 +8,16 @@ backend, frontend — sozinho ou orquestrado por um Supervisor.
 
 ## Papéis do time
 
-- **arquiteto** — decide stack e contrato entre backend/frontend (sem tools).
+- **arquiteto** — decide stack e contrato entre backend/frontend (sem
+  tools). Usa Claude Haiku 4.5 (mais barato) — ver "Custo" abaixo.
 - **dev_backend** — implementa a API (FastAPI), com ferramentas reais de
   escrita de arquivo (`agents/tools.py`, sandboxed em `workspace/`).
 - **dev_frontend** — implementa a UI (React), lendo o contrato real do
   backend antes de codar.
+- **pesquisador** (`agents/researcher.py`) — propõe conteúdo novo via
+  `web_search` nativo da Anthropic, valida cada item contra o schema real
+  do backend antes de virar arquivo (nunca confia no que o modelo afirma
+  ter encontrado).
 - **supervisor** (`agents/supervisor.py`) — decide sozinho qual
   especialista aciona e quando, via saída estruturada.
 
@@ -34,7 +39,7 @@ python3 -m venv .venv
 cp .env.example .env   # preencha ANTHROPIC_API_KEY
 ```
 
-### Custo: modelo por papel, e provedores alternativos
+### Custo: modelo mais barato para o papel de rascunho/opinião
 
 O `arquiteto` (só opina em texto, sem tools) usa **Claude Haiku 4.5** por
 padrão — o modelo mais barato da Anthropic ($1/$5 por milhão de tokens de
@@ -42,32 +47,9 @@ entrada/saída, contra $5/$25 do Opus 5). `dev_backend`/`dev_frontend`
 continuam em Opus 5: escrevem arquivo de verdade via tool calling, e um
 modelo mais fraco aí arrisca código pior ou tool call malformada — custa
 mais em retrabalho do que economiza em tokens. Ver `_ROLE_MODELS` em
-`agents/team.py`.
-
-Por padrão o time chama a API da Anthropic direto (`ANTHROPIC_API_KEY` no
-`.env`). Dois provedores alternativos estão disponíveis, trocando
-`LLM_PROVIDER` no `.env` — nenhum dos dois é o padrão, e o papel
-`pesquisador` nunca os usa (depende da tool server-side `web_search`,
-exclusiva da API da Anthropic):
-
-- **Ollama local** (`LLM_PROVIDER=ollama`) — sem custo por token, mas já
-  testamos (`llama3.1:8b`, `qwen2.5-coder:7b`) e nenhum dos dois é
-  confiável o bastante pra escrever arquivo de verdade (ver
-  ARCHITECTURE.md). Serve pra papel de rascunho/opinião, não pra
-  `dev_backend`/`dev_frontend`.
-
-  ```bash
-  docker compose up -d ollama
-  docker compose exec ollama ollama pull llama3.1   # baixa o modelo, uma vez
-  ```
-
-- **OpenRouter** (`LLM_PROVIDER=openrouter`) — uma chave só, formato
-  OpenAI-compatible, troca de modelo (inclusive opções gratuitas) mudando
-  `OPENROUTER_MODEL` no `.env`. Preencha `OPENROUTER_API_KEY` (chave em
-  https://openrouter.ai/keys).
-
-Ver `agents/llm.py::build_chat_model` para os detalhes (inclui como forçar
-um provedor específico independente do `.env`).
+`agents/team.py`, e ARCHITECTURE.md pra outras arquiteturas de custo já
+tentadas e descartadas (Ollama local, OpenRouter) — nenhuma delas se
+provou confiável o bastante pros papéis que escrevem código de verdade.
 
 ## Rodar
 
@@ -77,6 +59,18 @@ um provedor específico independente do `.env`).
 .venv/bin/python dev_frontend_agent.py  # Passo 3: dev_frontend com tools
 .venv/bin/python team_supervisor.py     # Passo 4: supervisor orquestrando o time
 .venv/bin/python refactor_team.py       # auditoria (só leitura) do próprio código do time
+```
+
+`projects/` guarda os scripts que já dispararam o time em cima de um
+projeto real específico (fe-catolica, repasse-api, ...) — cada um aponta
+`DEV_AGENT_WORKSPACE` pro repositório de destino antes de importar
+`agents` (ver o docstring de qualquer um deles). Não são parte do
+framework reutilizável; são o HISTÓRICO de uso dele. Rode sempre como
+módulo, da raiz do repo (não pelo caminho do arquivo direto — `agents`
+não resolveria):
+
+```bash
+.venv/bin/python -m projects.build_fe_catolica
 ```
 
 ## Interface web — rodar o time e acompanhar a conversa ao vivo

@@ -15,13 +15,21 @@ e implementa projetos de software (Python + Next.js) de ponta a ponta.
 Cada papel do time é um agente especializado; um Supervisor decide qual
 papel age em cada rodada, sem intervenção manual.
 
+Duas orquestrações independentes convivem no mesmo repo: o **loop do
+Supervisor** (arquiteto → dev_backend → dev_frontend, o diagrama abaixo)
+constrói código; o **pesquisador** (`agents/researcher.py`) é um pipeline
+à parte, sem Supervisor, que propõe e valida conteúdo (não código) via
+busca web nativa — ver "Pesquisador" nas decisões abaixo.
+
 ## Diagrama do time
 
 ```mermaid
 graph TD
-    S[Supervisor<br/>roteador com saída estruturada] -->|decide o próximo papel| A[arquiteto<br/>sem tools, saída estruturada]
-    S --> B[dev_backend<br/>com tools]
-    S --> F[dev_frontend<br/>design + tools, 2 etapas]
+    UI[web_ui.py / team_supervisor.py<br/>tarefa do usuário] -->|task| S
+    S[Supervisor<br/>roteador com saída estruturada] -.stream ao vivo.-> UI
+    S -->|decide o próximo papel| A[arquiteto<br/>Haiku 4.5, sem tools, saída estruturada]
+    S --> B[dev_backend<br/>Opus 5, com tools]
+    S --> F[dev_frontend<br/>Opus 5, design + tools, 2 etapas]
 
     A -->|ArchitecturePlan| S
     B -->|escreve código| WS[(workspace/)]
@@ -53,9 +61,12 @@ graph TD
 | `agents/project_tools.py` | Tools sandboxed na raiz do projeto real, com bloqueio de segredos/git/venv — auto-manutenção do time |
 | `agents/knowledge.py` | Índice BM25 sobre `standards/*.md` + tool `search_standards` |
 | `agents/usage.py` | Callback que grava cada chamada real ao modelo em `usage_log.jsonl` |
+| `agents/researcher.py` | Papel `pesquisador` — propõe conteúdo via `web_search` nativo e valida cada item contra o schema real do backend antes de virar arquivo. Pipeline à parte, não passa pelo Supervisor |
 | `standards/*.md` | Convenções de código/design que cada papel segue — arquivos editáveis sem tocar em Python |
-| `dashboard.py` | Streamlit lendo `usage_log.jsonl` |
-| `main.py`, `dev_backend_agent.py`, `dev_frontend_agent.py`, `team_supervisor.py`, `refactor_team.py` | Scripts de entrada, cada um exercitando uma camada (Passos 1-4 + auditoria) |
+| `dashboard.py` | Streamlit lendo `usage_log.jsonl` (custo/uso) |
+| `web_ui.py` | Streamlit pra rodar o Supervisor e acompanhar a "conversa" do time ao vivo, com tarefa via formulário |
+| `main.py`, `dev_backend_agent.py`, `dev_frontend_agent.py`, `team_supervisor.py`, `refactor_team.py` | Scripts de entrada do framework, cada um exercitando uma camada (Passos 1-4 + auditoria) |
+| `projects/*.py` | Scripts que já dispararam o time em cima de um projeto real específico (fe-catolica, repasse-api, ...) — histórico de uso, não framework; ver "Organização do repositório" |
 
 ---
 
@@ -78,6 +89,20 @@ Python por papel.** Um papel novo é uma entrada de dict + um `.md`
 opcional — não precisa de uma classe/arquivo Python novo. O "quem esse
 agente é" (persona) fica separado do "que convenções ele segue"
 (`standards/*.md`), a mesma ideia de um `CLAUDE.md`.
+
+### Organização do repositório
+
+**`projects/*.py` separado do framework, não misturado na raiz.** O
+dev-agent não é só um projeto de estudo — já disparou o time de verdade
+em cima de projetos reais (fe-catolica, repasse-api, repassei), cada um
+com seu próprio script de entrada (`DEV_AGENT_WORKSPACE` + tarefa). Esses
+scripts não são o framework reutilizável, são o HISTÓRICO de uso dele —
+misturados na raiz junto de `agents/`/`dashboard.py`/`web_ui.py`, ficava
+difícil separar "o produto" de "os registros de quem já usou o produto".
+Movidos para `projects/`, rodados como módulo (`python -m
+projects.build_fe_catolica`, nunca pelo caminho do arquivo direto — o
+import de `agents` só resolve com a raiz do repo no `sys.path`, que é o
+que `-m` garante a partir do diretório atual).
 
 ### Segurança
 
@@ -188,15 +213,40 @@ que já causou um bug real, documentado acima) do que uma chamada de
 texto/planejamento única. Uma tarefa que falha por truncamento e precisa
 ser refeita custa mais que a folga extra no teto.
 
+**Modelo mais barato (Claude Haiku 4.5) só no `arquiteto`, nunca em
+`dev_backend`/`dev_frontend`.** Diferente da ideia descartada abaixo
+(dois modelos pros papéis que ESCREVEM código), o arquiteto só produz
+texto/`ArchitecturePlan` — sem tool calling, sem arquivo real gravado. O
+pior caso de um modelo mais fraco aí é um plano pior, não um `tool_use`
+malformado travando o `AgentExecutor`. Ver `_ROLE_MODELS` em
+`agents/team.py`.
+
+**Propostas testadas e descartadas: Ollama local e OpenRouter como
+provedor alternativo.** Testado de verdade (não só lido): `llama3.1:8b` e
+`qwen2.5-coder:7b` via Ollama local (Docker). Achado real — o segundo,
+apesar do nome sugerir foco em tool use, respondeu a uma tool call
+simples com o JSON como TEXTO solto em vez de usar o canal estruturado de
+tool calling que o LangChain sabe interpretar; o primeiro deu respostas
+inconsistentes entre execuções (uma certa, uma contraditória) pro mesmo
+prompt. Nenhum dos dois é confiável o bastante pros papéis que escrevem
+arquivo de verdade — e OpenRouter (nunca chegou a ser testado de verdade)
+foi removido junto por não ter uso real que justificasse a complexidade
+extra (`langchain-openai`, endpoint OpenAI-compatible, mais um provedor
+pra manter). Código revertido — `agents/llm.py` voltou a só Anthropic; a
+lição (modelo pequeno = tool calling não confiável) fica registrada aqui,
+não em código morto.
+
 **Propostas descartadas por enquanto (exigem eval que não temos):**
 effort mais baixo no roteador do Supervisor (é uma decisão pequena e
 repetida — bom candidato, mas sem forma de medir se a qualidade do
-roteamento cai) e usar um modelo mais barato pra tarefas rotineiras do
-`dev_backend`/`dev_frontend` (arquitetura de dois modelos). Aplicar
-qualquer um dos dois sem conseguir comparar antes/depois seria trocar
-qualidade por custo às cegas — a skill de cost-optimize é explícita
-sobre isso: tradeoffs só se aplicam com uma forma de medir a queda de
-qualidade, e hoje não temos nenhuma.
+roteamento cai) e um SEGUNDO modelo mais barato pras tarefas rotineiras
+de `dev_backend`/`dev_frontend` (diferente do Haiku no arquiteto acima —
+aqui o risco é justamente o tool calling, e é isso que o teste de
+Ollama/OpenRouter deixou concreto, não só hipotético). Aplicar qualquer
+um dos dois sem conseguir comparar antes/depois seria trocar qualidade
+por custo às cegas — a skill de cost-optimize é explícita sobre isso:
+tradeoffs só se aplicam com uma forma de medir a queda de qualidade, e
+hoje não temos nenhuma.
 
 ### RAG e recuperação de conhecimento
 
@@ -222,14 +272,57 @@ como única fonte de detalhe) foi adiada de propósito: sem crédito de API
 pra testar se o modelo usa a tool o suficiente sem a rede de segurança do
 contexto já vindo pronto, trocar agora é arriscado sem conseguir validar.
 
+### Pesquisador (conteúdo, não código)
+
+**`web_search` server-side da própria Anthropic, não uma tool
+client-side.** O modelo executa a busca e recebe o resultado na MESMA
+chamada — sem round-trip pelo cliente, sem precisar de uma API de busca
+terceira (Google/Bing) integrada à mão. Por isso este papel NUNCA passa
+por outro provedor (Ollama, OpenRouter) — a tool é exclusiva da API da
+Anthropic, sem equivalente em outro provedor.
+
+**Nunca confiar no que o modelo AFIRMA ter encontrado — validar contra o
+schema real e verificar cada URL de imagem de verdade.** O mesmo gap
+estrutural documentado em "O time não conseguia se auto-validar" abaixo
+se aplica a conteúdo: o modelo pode dizer que achou uma fonte sem ter
+achado, ou montar uma URL de imagem "parecida" com uma real. `validate_batch`
+importa o schema Pydantic REAL do backend (não duplicado aqui) e faz uma
+requisição HTTP de verdade em cada imagem proposta — descartando só a
+imagem (não a entrada inteira) se ela não resolver.
+
+**Sonnet 5, não Opus 5 (padrão dos demais papéis).** Pesquisa grounded em
+busca depende mais de seguir regra à risca (nunca inventar, sempre citar)
+do que do raciocínio mais caro do Opus — e o custo real observado desse
+papel já é alto por causa do próprio `web_search` (tokens de busca
+acumulados), não por precisar do modelo mais caro.
+
+### Interface web e streaming do Supervisor
+
+**`agents/supervisor.py::run` é um gerador, não uma função que devolve a
+lista completa no final.** Motivo: `web_ui.py` (Streamlit) precisa
+mostrar a decisão de CADA rodada assim que ela acontece — "acompanhar a
+conversa do time", não só ver o resultado depois de tudo pronto. Virar
+gerador não quebrou o consumidor antigo (`team_supervisor.py`, CLI): um
+`for entry in run(task):` funciona igual com generator ou lista, e ganhou
+de graça o mesmo streaming no terminal.
+
+**A justificativa da decisão do Supervisor (`Decision.reasoning`) é
+emitida pra quem consome o gerador, mas NUNCA entra no histórico
+reenviado ao roteador.** Já existia no schema, mas não aparecia em lugar
+nenhum antes do `web_ui.py` precisar dela pra exibir "por que o
+supervisor escolheu esse papel". Incluí-la no histórico que volta pro
+próprio roteador poluiria o contexto com a justificativa anterior do
+modelo sobre si mesmo — testado explicitamente (`test_should_not_feed_
+supervisor_reasoning_back_into_router_history`).
+
 ### Testes e CI
 
-**Nenhum teste chama a API real da Anthropic.** Toda a suíte (33 testes)
+**Nenhum teste chama a API real da Anthropic.** Toda a suíte (63 testes)
 usa fakes/stubs/monkeypatch — um chat model falso (`BaseChatModel`
 determinístico) pra provar wiring de callback, ou substituição direta de
-`create_agent`/`create_agent_with_tools` por stubs quando o que se testa
-é orquestração, não a chamada em si. Consequência direta: o CI roda sem
-nenhum secret configurado no repo.
+`create_agent`/`create_agent_with_tools`/`_router` por stubs quando o que
+se testa é orquestração, não a chamada em si. Consequência direta: o CI
+roda sem nenhum secret configurado no repo.
 
 **Convenção de nome de teste**: `test_should_{o_que}_when_{causa}` —
 descreve comportamento, não implementação. Herdado dos padrões reais de
