@@ -7,6 +7,109 @@
 
 ---
 
+## 🧠 7 conceitos de UX por trás destas regras
+
+Teoria de usabilidade estabelecida, não opinião — cada regra abaixo (cara de
+IA, paleta, hierarquia, copy...) é uma aplicação prática de um destes 7
+conceitos. Quando uma decisão de UI não tiver regra explícita cobrindo, volte
+pra estes princípios em vez de adivinhar.
+
+### 1. Os dois golfos (Norman)
+
+Toda interação tem dois pontos onde o usuário se perde: o **golfo de
+execução** ("o que eu clico pra fazer isso?") e o **golfo de avaliação** ("deu
+certo? o que mudou?"). Uma tela só está completa quando fecha os dois — não
+adianta a ação estar clara se o resultado dela fica invisível.
+
+- Golfo de execução: o controle certo parece controle (botão parece
+  clicável, campo parece editável) e o rótulo diz a ação, não o mecanismo
+  interno (ver "Copy é material de design" abaixo).
+- Golfo de avaliação: toda ação dá feedback imediato e legível — um toast,
+  uma mudança de estado visível, um item que aparece na lista. Nunca deixar
+  o usuário adivinhar se o clique "pegou".
+
+### 2. Dez heurísticas (Nielsen)
+
+As que mais pesam em ferramenta/dashboard (não é a lista completa — é a que
+importa no dia a dia):
+
+- **Visibilidade do estado do sistema**: loading, sucesso, erro e vazio são
+  estados distintos e visíveis, nunca a mesma tela "em branco" pros três.
+- **Controle e liberdade do usuário**: toda ação destrutiva ou de múltiplos
+  passos tem como desfazer ou cancelar — nunca uma via de mão única.
+- **Consistência e padrões**: o mesmo componente se comporta igual em toda a
+  interface; uma exceção sem motivo é bug, não variedade.
+- **Prevenção de erro > boa mensagem de erro**: um campo que já valida antes
+  do submit vale mais que a melhor mensagem de erro depois.
+- **Reconhecer, não lembrar**: opções visíveis (menu, breadcrumb) em vez de
+  exigir que o usuário memorize um caminho ou comando.
+
+### 3. Atributos pré-atentivos (Ware)
+
+Cor, tamanho, orientação, forma e movimento são percebidos em <200ms, antes
+de qualquer leitura consciente — é isso que faz um elemento "saltar aos
+olhos" sem o usuário precisar procurar. Use pra hierarquia real (o que
+precisa ser visto primeiro), não decoração:
+
+- Reserve um atributo pré-atentivo (cor de destaque, por exemplo) pro que é
+  realmente prioritário — se tudo pisca ou tudo é vermelho, nada se destaca
+  (mesma ideia de "nem tudo é card" em Layout e espaçamento, abaixo).
+- Combine no máximo 2 atributos pra uma mesma hierarquia (cor + tamanho, por
+  ex.) — empilhar todos ao mesmo tempo cria ruído, não clareza.
+
+### 4. Acessibilidade como restrição, não feature extra
+
+Acessibilidade decidida DEPOIS do visual pronto sempre fica pior e mais cara
+de corrigir — trate como restrição de design desde a primeira decisão de
+paleta/layout, igual a "decida a paleta antes do código" abaixo:
+
+- Contraste mínimo AA (4.5:1 texto normal, 3:1 texto grande) — verificar na
+  hora de escolher a paleta, não depois.
+- Navegável 100% por teclado, com ordem de foco lógica e foco sempre visível.
+- Estado nunca comunicado só por cor (ver "cor semântica" abaixo) — sempre
+  com um segundo sinal (ícone, texto, padrão).
+
+### 5. Divulgação progressiva e custo de interação (Fitts, Krug)
+
+Lei de Fitts: quanto maior e mais perto do cursor/dedo um alvo, mais rápido e
+com menos erro ele é atingido — a ação primária de uma tela é o alvo maior e
+mais ao alcance, nunca do mesmo tamanho que uma ação secundária rara. "Não me
+faça pensar" (Krug): cada decisão que o usuário precisa tomar pra entender a
+tela é custo de interação — divulgação progressiva reduz esse custo
+mostrando só o essencial primeiro:
+
+- Configuração avançada/rara fica atrás de um passo extra ("Mais opções"),
+  nunca lotando a tela principal por igual à ação comum.
+- Ação primária de uma tela é visualmente maior/mais isolada que as demais —
+  nunca um grupo de botões do mesmo peso competindo por atenção.
+
+### 6. Lei de Jakob e orçamento de atenção
+
+O usuário passa a maior parte do tempo em OUTROS produtos — ele chega
+esperando que o seu funcione como os que ele já conhece (posição de menu,
+ícone de carrinho, gesto de swipe). Reinventar o óbvio gasta orçamento de
+atenção que o usuário tem finito — e esse orçamento deveria ir pro que
+realmente diferencia o produto, não pra ele reaprender navegação básica.
+
+- Convenção conhecida (ícone, posição, atalho) vence originalidade, exceto
+  onde a originalidade É o produto.
+- Gaste a "cota de novidade" da interface no que importa (o dado, a
+  decisão), não em componentes de UI reinventados sem motivo.
+
+### 7. Inclusão por padrão
+
+Desenhar pro "caso médio" e tratar o resto como exceção depois é como
+acessibilidade mal-feita nasce — pense nos extremos desde a primeira versão,
+não como polimento final:
+
+- Idioma/localização, tela pequena, conexão lenta, dispositivo antigo,
+  capacidade motora ou visual diferente — fazem parte do desenho, não são
+  "casos extras" a tratar depois se sobrar tempo.
+- Se a interface só funciona no caminho feliz (usuário rápido, tela grande,
+  conexão boa, sem deficiência), ela não está pronta — está incompleta.
+
+---
+
 ## 🚫 Evite a "cara de IA"
 
 Design gerado por IA se agrupa em uns poucos clichês bem reconhecíveis.
