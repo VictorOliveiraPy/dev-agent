@@ -39,6 +39,10 @@ python3 -m venv .venv
 cp .env.example .env   # preencha ANTHROPIC_API_KEY
 ```
 
+Instalando num PC novo (do zero, depois de formatar)? Ver
+[INSTALL.md](INSTALL.md) — inclui o checklist do que fazer backup antes
+(chave de API, histórico de uso, chaves SSH) e o passo a passo completo.
+
 ### Custo: modelo mais barato para o papel de rascunho/opinião
 
 O `arquiteto` (só opina em texto, sem tools) usa **Claude Haiku 4.5** por
