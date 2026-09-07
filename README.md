@@ -59,6 +59,7 @@ provou confiável o bastante pros papéis que escrevem código de verdade.
 .venv/bin/python dev_frontend_agent.py  # Passo 3: dev_frontend com tools
 .venv/bin/python team_supervisor.py     # Passo 4: supervisor orquestrando o time
 .venv/bin/python refactor_team.py       # auditoria (só leitura) do próprio código do time
+.venv/bin/python cache_probe.py         # diagnóstico: o prompt caching está funcionando? (gasta API real, pouco)
 ```
 
 `projects/` guarda os scripts que já dispararam o time em cima de um

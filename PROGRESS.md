@@ -558,3 +558,26 @@ quando o script roda com `-m` a partir da raiz.
 **Testes**: suíte cresceu de 33 pra 63 (novos: `test_llm.py`,
 `test_supervisor.py`, `test_web_ui.py`; `test_team.py` ganhou um caso
 pro `_ROLE_MODELS`) — nenhum chama API real, mesma convenção de sempre.
+
+**⚠️ Achado importante (ainda não resolvido): prompt caching parece
+quebrado no caminho do `AgentExecutor`.** Analisando `usage_log.jsonl` de
+verdade (317 chamadas reais, 3 dias) depois de um relato de "gastei US$20
+em 20 minutos": `dev_backend` (108 chamadas, ~$28 estimados) e
+`dev_frontend` (50 chamadas, ~$12 estimados) têm `cache_read`/
+`cache_creation` em ZERO, em TODA chamada — enquanto `pesquisador` (que
+NÃO usa `AgentExecutor`, 158 chamadas) tem cache saudável
+(262k tokens lidos do cache, 193k escritos). Confirmado sem gastar API
+que a marcação `cache_control` sai correta na requisição (via modelo
+falso + inspeção do código-fonte real do `langchain_anthropic`) — o que
+sobra como suspeito é o caminho específico de `create_agent_with_tools`
+(`dev_backend`/`dev_frontend`), não `create_agent` (usado por
+`pesquisador`/`arquiteto`/planner do frontend).
+
+**Ferramenta pronta pra confirmar**: `cache_probe.py` (raiz do repo) —
+manda a mesma tarefa mínima duas vezes seguidas pro `dev_backend` e
+mostra os 4 contadores de uso de cada chamada, lado a lado. Só falta
+rodar com saldo de API disponível (a conta ficou sem crédito de novo).
+Regra da própria metodologia de cost-optimize da Anthropic: caching é o
+maior lever de custo que existe e é GRÁTIS (sem trade-off de qualidade)
+— resolver isso vem antes de qualquer conversa sobre trocar de
+modelo/provedor por custo.

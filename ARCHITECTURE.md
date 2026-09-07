@@ -369,6 +369,23 @@ auto-validação, um agente revisando o PRÓPRIO trabalho pega menos erro
 que um segundo papel dedicado a isso — é a parte estrutural do problema
 que a mudança acima não resolve sozinha.
 
+### Prompt caching parece quebrado no caminho do AgentExecutor (achado em 2026-09-06, não resolvido)
+
+Análise real de `usage_log.jsonl` (317 chamadas, 3 dias) mostrou
+`cache_read`/`cache_creation` em ZERO, em toda chamada, pra
+`dev_backend`/`dev_frontend` (ambos via `create_agent_with_tools` →
+`AgentExecutor`) — enquanto `pesquisador` (que não usa `AgentExecutor`)
+tem cache saudável. A marcação `cache_control` sai correta na
+requisição (confirmado sem gastar API, via modelo falso + inspeção do
+código-fonte do `langchain_anthropic`), então o suspeito é algo
+específico do caminho do `AgentExecutor` — não confirmado por completo
+por falta de crédito de API pra rodar um teste real. `cache_probe.py`
+(raiz do repo) está pronto pra confirmar assim que houver saldo: manda a
+mesma tarefa mínima duas vezes seguidas e mostra os 4 contadores de uso
+lado a lado. Isso importa porque caching é o maior lever de custo do
+projeto (ver seção "Custo" acima) e está efetivamente desligado nos dois
+papéis que mais gastam.
+
 ### Outras
 
 - `search_standards` e a persona "cheia" convivem sem necessidade real
