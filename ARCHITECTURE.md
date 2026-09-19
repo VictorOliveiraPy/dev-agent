@@ -140,6 +140,21 @@ aconteceu de montar um padrão rico demais em cima da stack errada
 (auditoria de frontend revelou Next.js onde a gente tinha Vite; a stack
 do time foi trocada pra bater com a realidade).
 
+**`standards/backend.md` migrado de camadas técnicas (routers/services/
+models) para Clean Architecture por domínio (domain/application/
+infrastructure/interface), em 2026-09-19.** Decisão explícita do usuário:
+todo backend futuro do time (não só um projeto específico) segue a regra
+de dependência de Uncle Bob (camadas internas nunca importam framework).
+Cláusula de DRY incluída de propósito na mesma mudança: um projeto com
+muitos domínios estruturalmente idênticos (o caso real que motivou a
+pergunta — o Acervo Católico tem 49 categorias de conteúdo quase
+idênticas, sem banco de dados pro conteúdo principal) não deve ganhar um
+use case por domínio só pra seguir a letra do padrão — um use case
+genérico e parametrizado é a escolha certa quando nenhum domínio tem
+regra de negócio distinta; Clean Architecture "de verdade" (um caso por
+domínio) fica reservada pros domínios com regra própria (pagamento, lance,
+autenticação — ou, no Acervo Católico, velas/liturgia/chat).
+
 **Saída estruturada (Pydantic) sempre que o resultado alimenta outra
 etapa do sistema, não só um humano lendo texto.** `Decision` (o
 Supervisor decide o próximo papel), `ArchitecturePlan` (o arquiteto
