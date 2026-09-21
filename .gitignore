@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 workspace/
 usage_log.jsonl
+quality_log.jsonl

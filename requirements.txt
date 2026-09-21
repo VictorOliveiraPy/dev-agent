@@ -1,7 +1,11 @@
 langchain==0.3.30
 langchain-anthropic==0.3.22
+langchain-deepseek==0.1.4
+langchain-openai==0.3.35
 python-dotenv==1.0.1
 pydantic==2.12.5
 streamlit>=1.60
 pandas>=2
 rank_bm25>=0.2
+fastapi>=0.115
+uvicorn[standard]>=0.32

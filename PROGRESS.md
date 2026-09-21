@@ -1,4 +1,4 @@
-# Progresso — sessões de 2026-09-02, 2026-09-03 e 2026-09-06
+# Progresso — sessões de 2026-09-02, 2026-09-03, 2026-09-06 e 2026-09-21
 
 ## Onde paramos
 
@@ -581,3 +581,175 @@ Regra da própria metodologia de cost-optimize da Anthropic: caching é o
 maior lever de custo que existe e é GRÁTIS (sem trade-off de qualidade)
 — resolver isso vem antes de qualquer conversa sobre trocar de
 modelo/provedor por custo.
+
+## Sessão de 2026-09-21 — métricas de qualidade + DeepSeek re-testado e adotado
+
+**Métricas de acertividade do pesquisador.** `agents/quality.py`
+(`QualityEntry` em `agents/schemas.py`) grava, em `quality_log.jsonl`, o
+que `validate_batch` já calculava mas não persistia: proposto vs. válido,
+e o motivo de cada descarte (slug duplicado, falha de schema, imagem que
+não resolveu). `quality_dashboard.py` (Streamlit) expõe isso com tier por
+emoji (🏆/👍/😬), acertividade por papel+modelo, motivo dos descartes e
+linha do tempo — pensado desde já pra comparar modelos/provedores lado a
+lado, não só um único provedor ao longo do tempo.
+
+**DeepSeek re-testado — desta vez com critério, e adotado.** A lição de
+06/09 (Ollama: tool calling não confiável) continua valendo pra modelos
+pequenos, mas DeepSeek é maior e passou nos três testes reais que
+decidiriam a troca, contra a API de verdade: (1) tool call única
+estruturada (`submit_entries` do pesquisador, contra o schema Pydantic
+REAL `Concilio` do backend, 1/1 válido); (2) loop completo do
+`AgentExecutor` com múltiplas tool calls em sequência, através do wiring
+real (`agents/team.py::create_agent_with_tools`, `dev_backend` escrevendo
+e relendo um arquivo de verdade) — incluindo o bloco `cache_control`
+Anthropic-specific do system prompt, que não quebrou nada; (3)
+`.with_structured_output()` contra `ArchitecturePlan` e `DesignPlan`,
+saída correta de primeira. Ver ARCHITECTURE.md, seção "Propostas testadas
+e descartadas", pro detalhe completo.
+
+**Design da troca: `LLM_PROVIDER` em `agents/llm.py`**, default
+`"anthropic"` (quem não configura nada não muda nada). `_ROLE_MODELS` do
+arquiteto (Haiku) é ignorado sob `LLM_PROVIDER=deepseek` — não existe
+equivalente no catálogo DeepSeek. **`agents/researcher.py` é a exceção
+deliberada**: sempre força `provider="anthropic"`, porque `web_search` é
+uma tool nativa *server-side* exclusiva da Anthropic — migrar esse papel
+de verdade exigiria uma tool de busca client-side (Tavily/Serper/Brave) e
+um loop diferente do atual, fica como proposta em aberto.
+
+**Instalação**: `langchain-deepseek==0.1.4` + `langchain-openai==0.3.35`
+adicionados a `requirements.txt`, pinados nessas versões de propósito —
+a versão mais recente de `langchain-deepseek` puxa `langchain-core 1.x`,
+incompatível com `langchain==0.3.30`/`langchain-anthropic==0.3.22`
+(quebra a suíte inteira). `.env.example` ganhou `LLM_PROVIDER` e
+`DEEPSEEK_API_KEY`, ambos opcionais.
+
+**Testes**: suíte cresceu de 63 pra 78 (`test_quality_dashboard.py` novo;
+`test_llm.py` reescrito pros dois provedores; `test_team.py` e
+`test_researcher.py` ganharam um caso cada pro comportamento de
+provider). `ruff check .` limpo. Nenhum teste chama API real — os testes
+reais (tool calling, structured output, AgentExecutor) rodaram à parte,
+manualmente, e não ficaram no repo.
+
+**Novo: `office/` — o time como personagens pixel-art numa mesa de
+escritório, tempo real.** Pedido explícito: ativar o Supervisor por uma
+interface visual, digitando a tarefa e acompanhando o andamento ao vivo,
+com os agentes representados visualmente e o uso de token visível.
+Streamlit (usado em `web_ui.py`/`dashboard.py`) não serve aqui — recarrega
+o script inteiro a cada evento, não dá pra animar um canvas em tempo real.
+Escolhido **FastAPI + WebSocket** no back-end (`office/server.py`) e
+HTML/CSS/JS puro no front (`office/static/`, sem build step): a thread que
+roda `agents.supervisor.run(task)` (síncrona, bloqueante, chamadas reais)
+empurra cada evento pra uma fila ponte com o event loop, que manda pro
+cliente via WebSocket assim que acontece — decisão do supervisor, resumo
+de cada especialista, E uso de token (lendo `usage_log.jsonl`
+incrementalmente depois de cada evento, não só no fim). 4 papéis
+(supervisor, arquiteto, dev_backend, dev_frontend — os únicos que
+`Decision.next_role` pode escolher) viram sprites pixel-art com paleta e
+acessório próprios (glasses/boné/rabo de cavalo/gravata), que "acordam"
+(monitor acende verde, anima mais rápido) quando é a vez de agir.
+
+Testado de ponta a ponta contra o servidor real (não só unitário): conexão
+WebSocket, erro de tarefa vazia, e uma rodada real (`LLM_PROVIDER=deepseek`
+— só ANTHROPIC_API_KEY em branco no momento) — o roteador mandou pro
+`dev_backend`, que **recusou** um `DEBUG = True` hardcoded citando os
+padrões reais do time (`standards/backend.md`), o supervisor insistiu, o
+`dev_backend` cumpriu e avisou a ressalva mesmo assim. Tokens acumularam
+certo entre eventos (5395 → 10124 → 14913 → 19944). Achado incidental, não
+um bug do `office/`: `agents/supervisor.py::_router` nunca teve o
+`usage_handler` anexado — o custo do próprio roteador não aparece em
+`usage_log.jsonl`, nem no `dashboard.py` nem aqui. **Corrigido nesta
+mesma sessão** (ver abaixo), não deixado pendente.
+
+Testes novos: `tests/test_office.py` (9 casos, só a lógica pura de parsing
+de evento e leitura incremental do log de uso — suíte foi de 78 pra 87).
+`fastapi`+`uvicorn[standard]` adicionados a `requirements.txt`.
+
+### Continuação da mesma sessão — 3 bugs reais achados USANDO o escritório
+
+Rodar o escritório contra uma tarefa real (pedido do usuário: auditar
+`Acervo-Cat-lico-API` de verdade) travou a interface no meio. Investigando
+com o servidor rodando (não em teste isolado), achei uma cadeia de causas
+reais — registro cada uma porque a lição vale além do `office/`:
+
+1. **`agents/supervisor.py::_router` sem `usage_handler`** (achado já
+   citado acima) — corrigido: `_router` agora tem
+   `.with_config(callbacks=[usage_handler], tags=["role:supervisor"])`,
+   igual a `create_agent`/`create_agent_with_tools`. O custo do roteador
+   (uma chamada real por rodada, sempre) agora aparece em
+   `usage_log.jsonl`.
+
+2. **Resultado cortado em 500 caracteres também no que o usuário VÊ, não só
+   no que volta pro histórico do roteador.** `_run_role_with_tools`/
+   `_run_frontend` faziam `output_text[:500]` numa string só, usada tanto
+   pro histórico (onde o corte faz sentido — controla custo do roteador)
+   quanto pro que é exibido a quem acompanha (`web_ui.py`, `office/`) —
+   onde cortar não faz sentido nenhum. Separado em dois textos: `run()`
+   agora faz `yield display_text` (completo) e só o `history` interno fica
+   truncado (`_HISTORY_SUMMARY_LIMIT`).
+
+3. **O bug de verdade: uma tool call fora da sandbox (`read_file` num
+   caminho `../`) derrubava a rodada INTEIRA**, mesmo sobrando orçamento
+   de iterações (`max_iterations=40`). Tentei corrigir com
+   `AgentExecutor(handle_tool_error=True)` — **não fez nada**: essa
+   versão do LangChain (`langchain==0.3.30`) não tem esse parâmetro no
+   `AgentExecutor` (só `handle_parsing_errors`, outra coisa), e o
+   Pydantic aceita o kwarg extra em silêncio sem aplicar nada. A flag
+   certa é por TOOL (`BaseTool.handle_tool_error`), lida em
+   `langchain_core/tools/base.py::run` — sem ela, só `ToolException`
+   (não `ValueError`, que era o que `_safe_path` levantava) seria
+   candidata a virar observação, e mesmo assim só se a flag estivesse
+   True na tool específica. Corrigido em duas partes: `_safe_path` agora
+   levanta `ToolException`, e `agents/tools.py` seta
+   `handle_tool_error = True` em cada tool sandboxed, no MÓDULO (não em
+   `create_agent_with_tools`) — vale pra qualquer agente que as use, sem
+   depender de quem monta o executor lembrar. Validado de ponta a ponta
+   contra o servidor real: `read_file` fora da sandbox agora vira
+   observação, o `dev_backend` recupera sozinho e continua a tarefa.
+
+**Streaming de tool call individual** (pedido explícito: "ver todos os
+detalhes"): `office/server.py::_ActivityCallbackHandler` — um
+`BaseCallbackHandler` que intercepta `on_tool_start`/`on_tool_end`/
+`on_tool_error` de QUALQUER tool dentro de um `AgentExecutor` e empurra
+cada uma pro cliente em tempo real (evento `"activity"`, estilo mais
+discreto no log). Sem isso, uma auditoria longa (pytest → ruff → mypy →
+leitura de vários arquivos) ficava muda por minutos — parecia travada,
+só não tinha feedback nenhum no meio do caminho. `create_agent_with_tools`
+e `run_frontend_task`/`run()` ganharam um parâmetro opcional
+`extra_callbacks` pra isso — `None` por padrão, não muda nada pra quem
+não usa (CLI, `web_ui.py`).
+
+**`GET /config`**: expõe provedor ativo e a pasta (`DEV_AGENT_WORKSPACE`)
+que `dev_backend`/`dev_frontend` podem tocar nesta sessão — pedido do
+usuário ("autorizar mexer em qualquer projeto nosso, desde que eu peça").
+A sandbox continua só mudável ANTES de subir o servidor (`DEV_AGENT_
+WORKSPACE=/caminho python -m uvicorn office.server:app`), nunca no meio
+de uma tarefa — isso é proposital (ver `agents/tools.py`), não uma
+limitação a resolver.
+
+**Sprites de verdade andando pelo escritório** (pedido: "igual a extensão
+do VSCode" — vscode-pets). Trocado o desenho estático (sentado, só
+balançando) por uma pequena máquina de estados por personagem:
+`wander` (passeia devagar perto da própria baia, por seno — sem física,
+sem integração de velocidade) -> `walking_to_desk` (anda até a mesa
+quando `status` vira `working`, com easing) -> `at_desk` (senta, monitor
+acende, pequeno bob de "digitando") -> volta a `wander` quando termina.
+Pernas são 2 retângulos desenhados à parte (não faz parte do sprite
+principal) que alternam de altura enquanto anda — dá o ciclo de caminhada
+sem precisar de sprite-sheet por quadro. Bug pego e corrigido durante a
+implementação: a ordem de desenho (mesa/monitor antes ou depois do
+personagem) precisa DEPENDER do estado — sentado à mesa, a mobília cobre
+o personagem (senta ATRÁS); passeando, o personagem é desenhado por cima
+(está NA FRENTE, no chão aberto). Sem essa inversão condicional, o
+monitor aceso ficava escondido atrás do personagem sentado.
+
+**Bug de isolamento de teste, achado no processo**: `tests/test_team.py`
+começou a falhar sozinho depois que `LLM_PROVIDER=deepseek` foi
+adicionado ao `.env` REAL (pra testar o escritório) — os testes leem o
+`.env` de verdade via `load_dotenv()` na importação, então o valor do
+desenvolvedor vazava pra suíte. `tests/conftest.py` novo, com fixture
+`autouse` que sempre limpa `LLM_PROVIDER` do ambiente antes de cada teste
+— suíte não depende mais de qual `.env` local quem roda tem configurado.
+
+**Testes**: 87 → 90 (`test_tools.py` ganhou 2 casos pro
+`handle_tool_error`; `test_office.py` ganhou o teste do `/config`).
+`ruff check .` limpo.

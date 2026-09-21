@@ -13,6 +13,7 @@ implementação de cada área.
 import logging
 from collections.abc import Iterator
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.prompts import ChatPromptTemplate
 
 from agents.knowledge import search_standards
@@ -25,6 +26,7 @@ from agents.team import (
     run_frontend_task,
 )
 from agents.tools import list_dir, read_file, run_command, write_file
+from agents.usage import usage_handler
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,13 @@ ROLES_WITH_TOOLS = {"dev_backend", "dev_frontend"}
 # real com várias seções de conteúdo (ex: fe-catolica) plausivelmente
 # precisa de mais idas e vindas entre arquiteto/backend/frontend.
 MAX_ROUNDS = 10
+
+# Teto do que volta pro HISTÓRICO reenviado ao roteador a cada rodada — não
+# do que é exibido pra quem acompanha (ver `run`, que yield o texto
+# INTEIRO). Um resultado de 5000 caracteres multiplicado por várias rodadas
+# infla o contexto (e o custo) do roteador sem ganho real: ele só precisa
+# saber "o que já foi feito", não reler o output completo de cada etapa.
+_HISTORY_SUMMARY_LIMIT = 500
 
 
 _ROUTER_PROMPT = ChatPromptTemplate.from_messages([
@@ -61,39 +70,65 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_messages([
 # O roteador usa saída estruturada (ver agents/schemas.py::Decision) para
 # que o "próximo passo" seja um objeto validado, não texto livre pra fazer
 # parsing na mão.
-_router = _ROUTER_PROMPT | build_chat_model(max_tokens=2048).with_structured_output(Decision)
+#
+# with_config aqui é a mesma peça que falta pra QUALQUER chamada real cair
+# em usage_log.jsonl (ver agents/team.py::create_agent) — sem isso, o
+# custo do próprio roteador (uma chamada real por rodada, sempre) nunca
+# aparecia no dashboard nem no painel de tokens do escritório (bug real,
+# achado testando office/server.py contra a API de verdade).
+_router = (
+    (_ROUTER_PROMPT | build_chat_model(max_tokens=2048).with_structured_output(Decision))
+    .with_config(callbacks=[usage_handler], tags=["role:supervisor"])
+)
 
 
-def _run_architect(instruction: str) -> str:
-    """Aciona o arquiteto com saída estruturada e resume o plano pro histórico.
+def _run_architect(instruction: str) -> tuple[str, str]:
+    """Aciona o arquiteto com saída estruturada e resume o plano.
 
-    Diferente dos outros papéis (texto livre truncado), o arquiteto devolve
-    um ArchitecturePlan de verdade — o resumo abaixo é montado a partir dos
-    campos do modelo, não de um corte arbitrário de string.
+    Diferente dos outros papéis (texto livre), o arquiteto devolve um
+    ArchitecturePlan de verdade — o resumo é montado a partir dos campos do
+    modelo, não de um corte arbitrário de string, então já é enxuto o
+    bastante pra não precisar de truncamento separado (mesmo texto serve
+    pra exibição e pro histórico do roteador).
     """
     agent = create_agent("arquiteto", output_schema=ArchitecturePlan)
     plan = agent.invoke({"task": instruction})
 
     files = ", ".join(f.path for f in plan.files) or "(nenhum arquivo listado)"
-    return (
+    text = (
         f"[arquiteto] instrução: {instruction}\n"
         f"projeto: {plan.project_name} | stack: {plan.stack}\n"
         f"resumo: {plan.summary}\n"
         f"arquivos planejados: {files}"
     )
+    return text, text
 
 
-def _run_role_with_tools(role: str, instruction: str) -> str:
+def _run_role_with_tools(
+    role: str, instruction: str, extra_callbacks: list[BaseCallbackHandler] | None = None
+) -> tuple[str, str]:
     """Aciona um especialista com tools (hoje só dev_backend — dev_frontend
     tem seu próprio fluxo, ver `_run_frontend`) e resume o resultado.
+
+    Returns:
+        `(texto_completo, texto_pro_historico)` — o primeiro é pra quem
+        acompanha a execução (ver `run`), sem cortar nada; o segundo é o
+        que volta pro roteador na próxima rodada, truncado (ver
+        `_HISTORY_SUMMARY_LIMIT`).
     """
-    agent = create_agent_with_tools(role, DEFAULT_TOOLS)
+    agent = create_agent_with_tools(role, DEFAULT_TOOLS, extra_callbacks=extra_callbacks)
     result = agent.invoke({"task": instruction})
     output_text = extract_agent_output_text(result)
-    return f"[{role}] instrução: {instruction}\nresultado: {output_text[:500]}"
+    full = f"[{role}] instrução: {instruction}\nresultado: {output_text}"
+    for_history = (
+        f"[{role}] instrução: {instruction}\nresultado: {output_text[:_HISTORY_SUMMARY_LIMIT]}"
+    )
+    return full, for_history
 
 
-def _run_frontend(instruction: str) -> str:
+def _run_frontend(
+    instruction: str, extra_callbacks: list[BaseCallbackHandler] | None = None
+) -> tuple[str, str]:
     """Aciona o dev_frontend em duas etapas (ver `agents.team.run_frontend_task`):
     primeiro decide um DesignPlan estruturado (paleta, tipografia, layout —
     standards/design.md), depois implementa já seguindo esse plano.
@@ -102,16 +137,23 @@ def _run_frontend(instruction: str) -> str:
     assim, se o Supervisor mandar o dev_frontend fazer uma SEGUNDA tela
     depois, o histórico já mostra a paleta/tipografia escolhidas, em vez de
     cada tela decidir a própria identidade visual do zero.
+
+    Returns:
+        `(texto_completo, texto_pro_historico)` — ver `_run_role_with_tools`.
     """
-    plan, output_text = run_frontend_task(instruction, DEFAULT_TOOLS)
-    return (
-        f"[dev_frontend] instrução: {instruction}\n"
-        f"{plan.to_brief()}\n"
-        f"resultado: {output_text[:500]}"
+    plan, output_text = run_frontend_task(
+        instruction, DEFAULT_TOOLS, extra_callbacks=extra_callbacks
     )
+    brief = plan.to_brief()
+    full = f"[dev_frontend] instrução: {instruction}\n{brief}\nresultado: {output_text}"
+    for_history = (
+        f"[dev_frontend] instrução: {instruction}\n"
+        f"{brief}\nresultado: {output_text[:_HISTORY_SUMMARY_LIMIT]}"
+    )
+    return full, for_history
 
 
-def run(task: str) -> Iterator[str]:
+def run(task: str, *, extra_callbacks: list[BaseCallbackHandler] | None = None) -> Iterator[str]:
     """Roda o loop supervisor -> especialista até a tarefa ser concluída.
 
     É um GERADOR, não uma função que devolve tudo de uma vez: cada entrada
@@ -124,11 +166,15 @@ def run(task: str) -> Iterator[str]:
 
     Args:
         task: descrição do que o time deve entregar.
+        extra_callbacks: repassado aos papéis com tools (dev_backend,
+            dev_frontend) — usado por `office/server.py` pra transmitir
+            cada tool call individual em tempo real. `None` (padrão) não
+            muda nada pra quem já usava isto antes dessa opção existir.
 
     Yields:
         Uma entrada por evento: a decisão do supervisor (`"[supervisor]
-        próximo: ..."`) e o resumo de cada especialista acionado, na ordem
-        em que acontecem.
+        próximo: ..."`) e o resultado COMPLETO (sem truncar) de cada
+        especialista acionado, na ordem em que acontecem.
     """
     # Histórico interno, passado de volta pro roteador a cada rodada — só
     # decisões de especialista (arquiteto/backend/frontend) e avisos
@@ -161,21 +207,27 @@ def run(task: str) -> Iterator[str]:
         yield f"[supervisor] próximo: {decision.next_role} — {decision.reasoning}"
 
         if decision.next_role == "arquiteto":
-            summary = _run_architect(decision.instruction)
+            display_text, history_text = _run_architect(decision.instruction)
         elif decision.next_role == "dev_frontend":
-            summary = _run_frontend(decision.instruction)
+            display_text, history_text = _run_frontend(decision.instruction, extra_callbacks)
         elif decision.next_role in ROLES_WITH_TOOLS:
-            summary = _run_role_with_tools(decision.next_role, decision.instruction)
+            display_text, history_text = _run_role_with_tools(
+                decision.next_role, decision.instruction, extra_callbacks
+            )
         else:
             agent = create_agent(decision.next_role)
             output_text = agent.invoke({"task": decision.instruction})
-            summary = (
+            display_text = (
                 f"[{decision.next_role}] instrução: {decision.instruction}\n"
-                f"resultado: {output_text[:500]}"
+                f"resultado: {output_text}"
+            )
+            history_text = (
+                f"[{decision.next_role}] instrução: {decision.instruction}\n"
+                f"resultado: {output_text[:_HISTORY_SUMMARY_LIMIT]}"
             )
 
-        history.append(summary)
-        yield summary
+        history.append(history_text)
+        yield display_text
     else:
         entry = f"[supervisor] Parou por atingir o limite de {MAX_ROUNDS} rodadas."
         history.append(entry)

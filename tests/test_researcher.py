@@ -113,6 +113,24 @@ def fake_model(monkeypatch):
     return _install
 
 
+def test_should_always_force_anthropic_provider_regardless_of_llm_provider_env(monkeypatch):
+    """web_search não tem equivalente fora da Anthropic — este papel nunca
+    segue LLM_PROVIDER, mesmo que o resto do time esteja rodando DeepSeek."""
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    captured = {}
+    fake = _ScriptedFakeChatModel(responses=[_submit_entries_message([{"slug": "x"}])])
+
+    def fake_build(*args, **kwargs):
+        captured.update(kwargs)
+        return fake
+
+    monkeypatch.setattr(researcher, "build_chat_model", fake_build)
+
+    researcher.research_batch("pesquise 1 concílio", _ItemModel)
+
+    assert captured["provider"] == "anthropic"
+
+
 def test_should_return_items_when_model_calls_submit_entries_on_first_try(fake_model):
     itens = [{"slug": "niceia-ii", "titulo": "Concílio de Niceia II"}]
     fake_model([_submit_entries_message(itens)])
@@ -224,6 +242,37 @@ def test_should_add_accepted_slug_to_existing_slugs_when_entry_is_valid(monkeypa
     assert len(valid) == 1
     assert warnings == []
     assert "niceia-ii" in existing
+
+
+def test_should_record_quality_with_discard_breakdown_when_batch_is_mixed(monkeypatch):
+    """Fim a fim: validate_batch -> uma chamada a record_quality com a
+    contagem certa por motivo de descarte (duplicado, imagem, schema)."""
+    monkeypatch.setattr(
+        researcher, "_verify_image_url", lambda url, timeout=10.0: (False, "HTTP 404")
+    )
+    recorded = {}
+    monkeypatch.setattr(researcher, "record_quality", lambda **kwargs: recorded.update(kwargs))
+
+    raw = [
+        {"slug": "trento", "titulo": "Já existe"},
+        {"slug": "niceia-ii", "titulo": "Com imagem ruim", "imagem": "https://x/y.jpg"},
+        {"slug": "efeso", "titulo": "Ok", "campo_inventado": "quebra o schema"},
+    ]
+
+    valid, _ = researcher.validate_batch(
+        raw, _ItemModel, existing_slugs={"trento"}, model="claude-sonnet-5"
+    )
+
+    assert len(valid) == 1
+    assert recorded == {
+        "role": "pesquisador",
+        "model": "claude-sonnet-5",
+        "items_proposed": 3,
+        "items_valid": 1,
+        "discarded_duplicate_slug": 1,
+        "discarded_validation_error": 1,
+        "images_discarded": 1,
+    }
 
 
 def test_should_not_call_network_when_entry_has_no_image(monkeypatch):

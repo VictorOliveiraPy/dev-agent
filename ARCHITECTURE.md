@@ -251,6 +251,37 @@ pra manter). Código revertido — `agents/llm.py` voltou a só Anthropic; a
 lição (modelo pequeno = tool calling não confiável) fica registrada aqui,
 não em código morto.
 
+**Atualização (2026-09-21): DeepSeek re-testado e desta vez adotado —
+`LLM_PROVIDER=deepseek` em `agents/llm.py`.** Não é a mesma ideia
+ressuscitada sem critério: a lição acima (modelo pequeno = tool calling
+não confiável) continua valendo pra Ollama, mas DeepSeek é um modelo bem
+maior e passou nos três testes reais que decidiriam a troca, contra a API
+de verdade (não simulado): (1) tool call única e estruturada
+(`submit_entries` do pesquisador, com fatos prontos no prompt); (2) o loop
+completo do `AgentExecutor` com múltiplas tool calls reais em sequência
+(`write_file` -> `read_file` -> `list_dir`, através do wiring real de
+`agents/team.py::create_agent_with_tools`, incluindo o bloco
+`cache_control` Anthropic-specific do system prompt — não quebrou); (3)
+`.with_structured_output()` contra `ArchitecturePlan` e `DesignPlan`. Os
+três produziram saída estruturada correta na primeira tentativa. Ver
+PROGRESS.md (sessão 2026-09-21) pro detalhe de cada teste.
+
+Design da troca: `agents/llm.py::build_chat_model` lê `LLM_PROVIDER` do
+ambiente (default `"anthropic"` — quem não configura nada não muda nada) e
+devolve `ChatAnthropic` ou `ChatDeepSeek`, mesma interface `BaseChatModel`
+pros dois. `_ROLE_MODELS` em `agents/team.py` (o Haiku do arquiteto) é
+específico da Anthropic e é ignorado sob `LLM_PROVIDER=deepseek` — não
+existe um "Haiku do DeepSeek" equivalente hoje.
+
+**Exceção deliberada: `agents/researcher.py` nunca segue `LLM_PROVIDER`.**
+Ele sempre passa `provider="anthropic"` explicitamente pro
+`build_chat_model`, porque depende da tool `web_search` nativa
+*server-side* da Anthropic (ver seção "Descoberta de conteúdo via busca
+real" abaixo) — sem equivalente no DeepSeek. Migrar esse papel de verdade
+exigiria trocar por uma tool de busca client-side (Tavily/Serper/Brave) e
+mudar o loop de `research_batch`, que hoje não é um `AgentExecutor` — fica
+como proposta em aberto, não feita.
+
 **Propostas descartadas por enquanto (exigem eval que não temos):**
 effort mais baixo no roteador do Supervisor (é uma decisão pequena e
 repetida — bom candidato, mas sem forma de medir se a qualidade do

@@ -42,7 +42,7 @@ def test_should_yield_decision_then_summary_then_stop_when_router_concludes(monk
     monkeypatch.setattr(
         supervisor,
         "create_agent_with_tools",
-        lambda role, tools: _FakeAgentWithTools("endpoint criado"),
+        lambda role, tools, extra_callbacks=None: _FakeAgentWithTools("endpoint criado"),
     )
 
     entries = list(supervisor.run("tarefa de teste"))
@@ -63,7 +63,7 @@ def test_should_stop_after_max_rounds_when_router_never_concludes(monkeypatch):
     monkeypatch.setattr(
         supervisor,
         "create_agent_with_tools",
-        lambda role, tools: _FakeAgentWithTools("feito"),
+        lambda role, tools, extra_callbacks=None: _FakeAgentWithTools("feito"),
     )
 
     entries = list(supervisor.run("tarefa de teste"))
@@ -96,7 +96,7 @@ def test_should_not_feed_supervisor_reasoning_back_into_router_history(monkeypat
     monkeypatch.setattr(
         supervisor,
         "create_agent_with_tools",
-        lambda role, tools: _FakeAgentWithTools("feito"),
+        lambda role, tools, extra_callbacks=None: _FakeAgentWithTools("feito"),
     )
 
     list(supervisor.run("tarefa de teste"))

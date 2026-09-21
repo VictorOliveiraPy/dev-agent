@@ -124,6 +124,24 @@ def test_should_use_haiku_for_arquiteto_but_default_model_for_other_roles(monkey
     assert captured_models == ["claude-haiku-4-5", None]
 
 
+def test_should_ignore_role_models_override_when_provider_is_not_anthropic(monkeypatch):
+    """_ROLE_MODELS guarda IDs específicos da Anthropic (ex.: claude-haiku-4-5)
+    — sob LLM_PROVIDER=deepseek eles não fazem sentido, então o arquiteto
+    também cai no default do provedor ativo, igual aos outros papéis."""
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    captured_models = []
+
+    def fake_build_chat_model(*args, **kwargs):
+        captured_models.append(kwargs.get("model"))
+        return _RecordingFakeChatModel()
+
+    monkeypatch.setattr(team, "build_chat_model", fake_build_chat_model)
+
+    team.create_agent("arquiteto")
+
+    assert captured_models == [None]
+
+
 def test_should_return_empty_string_when_standard_file_is_missing(standards_dir):
     """Um arquivo de padrão que não existe não derruba a montagem da persona."""
     assert team._read_standard("nao_existe.md") == ""
@@ -177,7 +195,7 @@ def test_should_pass_design_plan_into_implementation_task_when_running_frontend_
         assert output_schema is DesignPlan
         return _FakePlanner()
 
-    def fake_create_agent_with_tools(role, tools):
+    def fake_create_agent_with_tools(role, tools, *, extra_callbacks=None):
         assert role == "dev_frontend"
         return _FakeImplementer()
 

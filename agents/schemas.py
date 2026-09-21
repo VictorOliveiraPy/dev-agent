@@ -121,3 +121,44 @@ class UsageEntry(BaseModel):
     cache_creation_tokens: int = Field(
         default=0, ge=0, description="Tokens escritos no cache nesta chamada (~1.25x custo)."
     )
+
+
+class QualityEntry(BaseModel):
+    """Um lote validado por `agents/researcher.py::validate_batch`: quanto do
+    que o agente propôs sobreviveu à autovalidação real.
+
+    É o schema de cada linha de `quality_log.jsonl` — escrito por
+    `agents/quality.py` e lido por `quality_dashboard.py`, no mesmo espírito
+    de `UsageEntry`/`usage_log.jsonl`, mas medindo acertividade em vez de
+    custo.
+    """
+
+    timestamp: datetime
+    role: str = Field(description="Papel do time responsável pelo lote, ex: 'pesquisador'.")
+    model: str = Field(description="ID do modelo usado para propor o lote.")
+    items_proposed: int = Field(ge=0, description="Quantos itens o modelo propôs no lote.")
+    items_valid: int = Field(
+        ge=0, description="Quantos itens sobreviveram a todas as checagens de validate_batch."
+    )
+    discarded_duplicate_slug: int = Field(
+        default=0, ge=0, description="Itens descartados por slug já existente no acervo."
+    )
+    discarded_validation_error: int = Field(
+        default=0, ge=0, description="Itens descartados por falhar o schema Pydantic real."
+    )
+    images_discarded: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Imagens descartadas por não resolver como imagem de verdade "
+            "(a entrada em si é mantida, sem a imagem)."
+        ),
+    )
+
+    @property
+    def accuracy_rate(self) -> float:
+        """Fração do lote proposto que sobreviveu à validação — 1.0 se
+        `items_proposed` for 0 (nada proposto, nada errado)."""
+        if self.items_proposed == 0:
+            return 1.0
+        return self.items_valid / self.items_proposed

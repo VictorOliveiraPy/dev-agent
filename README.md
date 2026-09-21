@@ -93,6 +93,22 @@ final, mostra quantos tokens aquela rodada específica gastou (comparando
 `usage_log.jsonl` antes/depois). **Cada rodada faz chamadas reais à API —
 custo de verdade**, não uma simulação.
 
+## Escritório — o time como personagens pixel-art, em tempo real
+
+```bash
+.venv/bin/uvicorn office.server:app --reload
+```
+
+Depois abra `http://localhost:8000`. Mesma ideia de `web_ui.py` (digitar
+uma tarefa, acompanhar o time trabalhando), mas em FastAPI + WebSocket em
+vez de Streamlit — necessário pra animar cada papel como um personagem
+sentado numa mesa, que "acorda" (monitor acende, sprite mexe) quando é a
+vez dele agir e volta a descansar quando termina. Mostra tokens gastos por
+papel ao vivo, lendo `usage_log.jsonl` incrementalmente conforme cada
+chamada real acontece — sem esperar a rodada inteira terminar. Front-end é
+HTML/CSS/JS puro (`office/static/`), sem build step. **Mesma ressalva de
+sempre: cada tarefa rodada faz chamadas reais à API.**
+
 ## Custos — dashboard de uso de tokens
 
 Toda chamada real ao modelo feita via `agents/team.py` (`create_agent` /
@@ -107,6 +123,38 @@ saída e timestamp — ver `agents/usage.py`.
 Mostra total de chamadas, tokens por agente e ao longo do tempo, e as
 últimas chamadas. Antes da primeira execução real, a página só mostra um
 aviso de "nenhum uso registrado ainda" — é esperado.
+
+## Qualidade e acertividade — o pesquisador acerta o quê, e quando erra?
+
+```bash
+.venv/bin/streamlit run quality_dashboard.py
+```
+
+Cada lote que `agents/researcher.py::validate_batch` processa é registrado
+em `quality_log.jsonl` (`agents/quality.py`): quanto do que o pesquisador
+propôs sobreviveu à autovalidação real, e por quê o resto foi descartado
+(slug duplicado, falha de schema, imagem que não resolveu). Pensado desde
+já pra comparar acertividade entre modelos/provedores lado a lado (ver
+"Múltiplos provedores de LLM" abaixo), não só medir um único provedor ao
+longo do tempo.
+
+## Múltiplos provedores de LLM — Anthropic ou DeepSeek
+
+```bash
+# .env
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=...
+```
+
+`agents/llm.py::build_chat_model` lê `LLM_PROVIDER` (default `"anthropic"`
+— sem configurar nada, nada muda) e monta `ChatAnthropic` ou
+`ChatDeepSeek`, mesma interface pros dois. Validado de verdade contra a
+API real: tool call única estruturada, o loop completo do `AgentExecutor`
+(múltiplas tool calls reais em sequência) e `.with_structured_output()` —
+ver ARCHITECTURE.md, seção "Propostas testadas e descartadas", pro
+detalhe de cada teste. **Exceção: `agents/researcher.py` sempre usa
+Anthropic**, porque depende da tool `web_search` nativa *server-side*, sem
+equivalente no DeepSeek.
 
 ## Qualidade
 

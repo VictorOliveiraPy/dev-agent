@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>dev-agent — Escritório</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/office.css" />
+</head>
+<body>
+  <div class="office-wrap">
+    <header>
+      <h1>🕹️ dev-agent — Escritório</h1>
+      <div id="run-tokens">0 tokens nesta rodada</div>
+    </header>
+    <div id="config-line">carregando configuração…</div>
+
+    <canvas id="scene" width="720" height="320"></canvas>
+
+    <div class="controls">
+      <div class="project-row">
+        <label for="project-select">Projeto</label>
+        <select id="project-select">
+          <option value="">(todos — o time explora e decide)</option>
+        </select>
+      </div>
+      <div class="examples" id="examples"></div>
+      <textarea id="task-input" placeholder="O que o time deve fazer? Ex: crie uma tela de cadastro de usuário com nome e email."></textarea>
+      <div class="controls-footer">
+        <span id="status-line">Ocioso — digite uma tarefa e mande rodar.</span>
+        <button id="run-btn">▶ Rodar</button>
+      </div>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h2>Andamento</h2>
+        <div id="log">
+          <p class="empty-hint">Nada rodou ainda nesta sessão.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Tokens por papel (esta rodada)</h2>
+        <div id="usage-bars">
+          <p class="empty-hint">Sem dados ainda.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/office.js"></script>
+</body>
+</html>

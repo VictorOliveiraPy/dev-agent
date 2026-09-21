@@ -11,11 +11,15 @@ formatação sem backup manual.
       chave em algum lugar seguro (gerenciador de senhas), ou saiba que
       vai precisar gerar uma nova em
       [console.anthropic.com](https://console.anthropic.com) → Plans & Billing.
-- [ ] **`usage_log.jsonl`** — histórico de custo/uso que alimenta
-      `dashboard.py`. Se quiser manter o histórico, copie esse arquivo
-      pra fora do repo antes de formatar (ex: pra um pendrive/nuvem).
-      Sem backup, o dashboard começa vazio de novo — não é um problema
-      funcional, só perde o histórico.
+- [ ] **`DEEPSEEK_API_KEY`** (opcional, só se usa `LLM_PROVIDER=deepseek`)
+      — mesma lógica, chave só no `.env` local; gere uma nova em
+      [platform.deepseek.com](https://platform.deepseek.com) se não tiver backup.
+- [ ] **`usage_log.jsonl` / `quality_log.jsonl`** — históricos de custo e
+      de acertividade que alimentam `dashboard.py`/`quality_dashboard.py`.
+      Se quiser manter o histórico, copie esses arquivos pra fora do repo
+      antes de formatar (ex: pra um pendrive/nuvem). Sem backup, os
+      dashboards começam vazios de novo — não é um problema funcional, só
+      perde o histórico.
 - [ ] **Chaves SSH (`~/.ssh/`)** — o remoto do repo usa SSH
       (`git@github.com:VictorOliveiraPy/dev-agent.git`). Sem backup das
       chaves, você vai precisar gerar um par novo e cadastrar a pública
@@ -57,6 +61,11 @@ python3 -m venv .venv
 cp .env.example .env
 # edite .env e cole sua ANTHROPIC_API_KEY (e ANTHROPIC_WORKSPACE_ID,
 # se você usa múltiplos workspaces na conta — opcional)
+#
+# Opcional: LLM_PROVIDER=deepseek + DEEPSEEK_API_KEY troca todo o time
+# (exceto o pesquisador, que sempre usa Anthropic — ver ARCHITECTURE.md)
+# pra rodar em cima do DeepSeek em vez de Claude. Sem essas duas
+# variáveis, nada muda (default é "anthropic").
 ```
 
 Se tinha backup de `usage_log.jsonl`, copie ele de volta pra raiz do
@@ -66,7 +75,7 @@ repo agora (fica de fora do Git de propósito, não precisa de `git add`).
 
 ```bash
 .venv/bin/python -m ruff check .     # deve dar "All checks passed!"
-.venv/bin/python -m pytest -q        # deve dar "63 passed"
+.venv/bin/python -m pytest -q        # deve dar "87 passed" (ou mais)
 ```
 
 Se os dois passarem, a fundação (dependências, venv, código) está OK —
@@ -85,8 +94,10 @@ recarregue em console.anthropic.com → Plans & Billing.
 ## 6. Interfaces web (opcional)
 
 ```bash
-.venv/bin/streamlit run dashboard.py   # custo/uso de tokens (usage_log.jsonl)
-.venv/bin/streamlit run web_ui.py      # rodar o time e ver a conversa ao vivo
+.venv/bin/streamlit run dashboard.py           # custo/uso de tokens (usage_log.jsonl)
+.venv/bin/streamlit run quality_dashboard.py   # acertividade do pesquisador (quality_log.jsonl)
+.venv/bin/streamlit run web_ui.py              # rodar o time e ver a conversa ao vivo
+.venv/bin/uvicorn office.server:app --reload   # o time como personagens pixel-art, tempo real
 ```
 
 ## 7. Pendência em aberto que você vai herdar

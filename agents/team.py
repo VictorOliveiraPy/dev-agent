@@ -11,6 +11,7 @@ Python — mesma ideia de um CLAUDE.md).
 from pathlib import Path
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -18,7 +19,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
-from agents.llm import build_chat_model
+from agents.llm import build_chat_model, current_provider
 from agents.schemas import DesignPlan
 from agents.usage import usage_handler
 
@@ -57,10 +58,23 @@ _ROLE_STANDARDS: dict[str, list[str]] = {
 # aí arrisca código pior ou tool call malformada — custa mais em retrabalho
 # do que economiza em tokens (mesmo risco que já vimos ao testar Ollama
 # local, ver agents/llm.py). Um papel sem entrada aqui usa o padrão da
-# fábrica de modelo (Opus 5, ou o que `LLM_PROVIDER` apontar).
+# fábrica de modelo (Opus 5).
+#
+# IDs específicos da Anthropic — só fazem sentido sob esse provedor. Não
+# existe hoje um "Haiku do DeepSeek" (o catálogo é bem menor), então sob
+# `LLM_PROVIDER=deepseek` este mapa é ignorado de propósito (ver
+# `_model_override_for`) e todo papel usa o default do provedor ativo.
 _ROLE_MODELS: dict[str, str] = {
     "arquiteto": "claude-haiku-4-5",
 }
+
+
+def _model_override_for(role: str) -> str | None:
+    """Resolve o override de modelo de um papel, só sob o provedor
+    Anthropic — ver nota em `_ROLE_MODELS`."""
+    if current_provider() != "anthropic":
+        return None
+    return _ROLE_MODELS.get(role)
 
 _STANDARDS_DIR = Path(__file__).parent.parent / "standards"
 
@@ -140,7 +154,7 @@ def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Run
         _system_message(persona),
         ("human", "{task}"),
     ])
-    model = build_chat_model(model=_ROLE_MODELS.get(role))
+    model = build_chat_model(model=_model_override_for(role))
 
     if output_schema is not None:
         chain = prompt | model.with_structured_output(output_schema)
@@ -153,7 +167,9 @@ def create_agent(role: str, output_schema: type[BaseModel] | None = None) -> Run
     return chain.with_config(callbacks=[usage_handler], tags=[f"role:{role}"])
 
 
-def create_agent_with_tools(role: str, tools: list[BaseTool]) -> Runnable:
+def create_agent_with_tools(
+    role: str, tools: list[BaseTool], *, extra_callbacks: list[BaseCallbackHandler] | None = None
+) -> Runnable:
     """Monta um AgentExecutor: a persona do papel + um loop de tool calling.
 
     Diferente de `create_agent` (chain fixa prompt -> model -> parser), aqui
@@ -165,6 +181,11 @@ def create_agent_with_tools(role: str, tools: list[BaseTool]) -> Runnable:
         role: uma chave de ROLES.
         tools: lista de tools (ex: write_file, read_file) que esse papel
             pode chamar.
+        extra_callbacks: callbacks adicionais anexados só nesta chamada, além
+            do `usage_handler` padrão — usado por `office/server.py` pra
+            transmitir cada tool call individual em tempo real, sem exigir
+            que quem não precisa disso (CLI, `web_ui.py`) saiba que essa
+            opção existe.
 
     Returns:
         Um Runnable (AgentExecutor com callback/tag de uso já anexados)
@@ -185,10 +206,20 @@ def create_agent_with_tools(role: str, tools: list[BaseTool]) -> Runnable:
     # ARCHITECTURE.md) do que uma chamada de texto/planejamento única.
     model = build_chat_model(max_tokens=16000)
     agent = create_tool_calling_agent(model, tools, prompt)
+    # NÃO existe `handle_tool_error` no `AgentExecutor` desta versão do
+    # LangChain (0.3.30) — só em `handle_parsing_errors`, que é outra
+    # coisa (erro de PARSING da saída do modelo, não de execução da
+    # tool). Passar `handle_tool_error=True` aqui seria aceito em
+    # silêncio pelo Pydantic e não faria NADA — bug real que já
+    # aconteceu nesta base de código. O lugar certo é por TOOL: ver
+    # `agents/tools.py`, onde cada tool já sai com `handle_tool_error =
+    # True` setado — é isso que faz uma `ToolException` (ex.: sandbox
+    # violada) virar observação pro modelo em vez de derrubar o loop.
     executor = AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=40)
     # Mesma ideia de create_agent: cada chamada ao modelo dentro do loop de
     # tool calling também cai no usage_log.jsonl, marcada com este papel.
-    return executor.with_config(callbacks=[usage_handler], tags=[f"role:{role}"])
+    callbacks: list[BaseCallbackHandler] = [usage_handler, *(extra_callbacks or [])]
+    return executor.with_config(callbacks=callbacks, tags=[f"role:{role}"])
 
 
 def extract_agent_output_text(result: dict) -> str:
@@ -204,7 +235,9 @@ def extract_agent_output_text(result: dict) -> str:
     return output
 
 
-def run_frontend_task(task: str, tools: list[BaseTool]) -> tuple[DesignPlan, str]:
+def run_frontend_task(
+    task: str, tools: list[BaseTool], *, extra_callbacks: list[BaseCallbackHandler] | None = None
+) -> tuple[DesignPlan, str]:
     """Executa o dev_frontend em DUAS etapas, em vez de uma só.
 
     Etapa 1 (sem tools): o dev_frontend decide um DesignPlan estruturado
@@ -219,6 +252,8 @@ def run_frontend_task(task: str, tools: list[BaseTool]) -> tuple[DesignPlan, str
         task: descrição da tarefa de frontend, em linguagem natural.
         tools: tools que a etapa de implementação pode usar (ex:
             write_file, read_file).
+        extra_callbacks: repassado à etapa de implementação (a única com
+            tools) — ver `create_agent_with_tools`.
 
     Returns:
         Uma tupla `(plano_decidido, texto_de_saida_da_implementacao)`.
@@ -232,7 +267,7 @@ def run_frontend_task(task: str, tools: list[BaseTool]) -> tuple[DesignPlan, str
     })
 
     implementation_task = f"{plan.to_brief()}\n\nTarefa:\n{task}"
-    agent = create_agent_with_tools("dev_frontend", tools)
+    agent = create_agent_with_tools("dev_frontend", tools, extra_callbacks=extra_callbacks)
     result = agent.invoke({"task": implementation_task})
 
     return plan, extract_agent_output_text(result)

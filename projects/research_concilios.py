@@ -31,6 +31,7 @@ sys.path.insert(0, str(BACKEND_PATH))
 
 from app.models import Concilio  # noqa: E402
 
+from agents import researcher  # noqa: E402
 from agents.researcher import research_batch, validate_batch  # noqa: E402
 
 DATA_FILE = BACKEND_PATH / "app" / "data" / "concilios.json"
@@ -133,7 +134,9 @@ def main() -> None:
             print(f"  ✗ Sub-lote falhou, pulando para o próximo: {exc}")
             continue
 
-        valid, warnings = validate_batch(raw_items, Concilio, existing_slugs)
+        valid, warnings = validate_batch(
+            raw_items, Concilio, existing_slugs, model=researcher._DEFAULT_MODEL
+        )
         for warning in warnings:
             print(f"  ⚠ {warning}")
         print(f"  {len(valid)}/{len(raw_items)} itens passaram na validação.")

@@ -39,6 +39,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, ValidationError
 
 from agents.llm import build_chat_model
+from agents.quality import record_quality
 from agents.team import _system_message
 from agents.usage import usage_handler
 
@@ -60,7 +61,7 @@ _DEFAULT_MODEL = "claude-sonnet-5"
 # este papel estão listadas abaixo, e a validação de verdade é código
 # (validate_batch), não instrução de prompt.
 _PERSONA = (
-    "Você é o Pesquisador de Conteúdo do time. Sua função é encontrar, "
+    "Você é o Pesquisador de Conteúdo Catolico Tradicional do time. Sua função é encontrar, "
     "usando a ferramenta de busca web disponível, fatos REAIS e "
     "verificáveis para novas entradas do Acervo Católico, e propô-las "
     "através da tool `submit_entries` — nunca inventa fato, data ou "
@@ -175,8 +176,12 @@ def research_batch(
             depois de `max_attempts` tentativas.
     """
     tools = [_web_search_tool(), _submit_entries_tool(item_model.model_json_schema())]
+    # provider="anthropic" é fixo, não segue LLM_PROVIDER: web_search é uma
+    # tool nativa exclusiva da Anthropic (ver agents/llm.py e
+    # ARCHITECTURE.md) — este papel nunca migra de provedor com o resto do
+    # time.
     chat_model = (
-        build_chat_model(max_tokens=max_tokens, model=model)
+        build_chat_model(max_tokens=max_tokens, model=model, provider="anthropic")
         .bind_tools(tools)
         .with_config(callbacks=[usage_handler], tags=[f"role:{ROLE}"])
     )
@@ -252,6 +257,8 @@ def validate_batch(
     raw_items: list[dict[str, Any]],
     item_model: type[BaseModel],
     existing_slugs: set[str],
+    *,
+    model: str = "",
 ) -> tuple[list[BaseModel], list[str]]:
     """Valida e filtra o lote proposto — o portão de autovalidação de verdade.
 
@@ -267,6 +274,11 @@ def validate_batch(
     o modelo Pydantic real da categoria (`extra="forbid"` no backend barra
     campo inventado; tipos e patterns errados barram o resto).
 
+    Ao final, registra um resumo do lote (proposto vs. válido, motivo dos
+    descartes) via `agents.quality.record_quality` — é o dado que alimenta
+    `quality_dashboard.py`. Chamado incondicionalmente (não é opcional):
+    o ponto inteiro é nunca esquecer de medir acertividade num lote real.
+
     Args:
         raw_items: saída bruta de `research_batch`.
         item_model: o mesmo modelo Pydantic passado a `research_batch`.
@@ -274,6 +286,10 @@ def validate_batch(
             categoria — mutado in-place com os slugs aceitos, então
             chamadas seguintes (outro lote da mesma categoria) já os
             enxergam como ocupados.
+        model: ID do modelo que propôs o lote (ex.: o `model` passado a
+            `research_batch`) — só para o registro de qualidade, não afeta
+            a validação. Vazio por padrão para quem chama `validate_batch`
+            isoladamente (ex.: testes) sem se importar com o dashboard.
 
     Returns:
         `(entradas_validas, avisos)` — `avisos` é texto pronto para
@@ -282,6 +298,9 @@ def validate_batch(
     """
     valid: list[BaseModel] = []
     warnings: list[str] = []
+    discarded_duplicate_slug = 0
+    discarded_validation_error = 0
+    images_discarded = 0
     category_field = item_model.model_fields.get("categoria")
     category_value = getattr(category_field.default, "value", None) if category_field else None
 
@@ -291,6 +310,7 @@ def validate_batch(
 
         if slug in existing_slugs:
             warnings.append(f"descartado '{slug}': slug já existe no acervo")
+            discarded_duplicate_slug += 1
             continue
 
         if category_value and slug != "<sem slug>":
@@ -303,14 +323,26 @@ def validate_batch(
                 warnings.append(f"'{slug}': imagem descartada ({reason}) — {imagem}")
                 raw["imagem"] = None
                 raw["imagem_credito"] = None
+                images_discarded += 1
 
         try:
             entry = item_model.model_validate(raw)
         except ValidationError as exc:
             warnings.append(f"descartado '{slug}': falhou validação — {exc}")
+            discarded_validation_error += 1
             continue
 
         valid.append(entry)
         existing_slugs.add(slug)
+
+    record_quality(
+        role=ROLE,
+        model=model,
+        items_proposed=len(raw_items),
+        items_valid=len(valid),
+        discarded_duplicate_slug=discarded_duplicate_slug,
+        discarded_validation_error=discarded_validation_error,
+        images_discarded=images_discarded,
+    )
 
     return valid, warnings
