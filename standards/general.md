@@ -52,11 +52,30 @@ on a specific paragraph if it still feels off after applying these.
 - A comment earns its place by explaining a decision a reader couldn't
   infer from the code itself; it doesn't restate what the code says.
 
-## 🏗️ Structure
+## 🏗️ Structure — depth over sprawl
 
-- Prefer a few well-organized files over many small ones. Only split into
-  modules when it genuinely reduces complexity — splitting for its own
-  sake adds indirection without paying for itself.
+Prefer a few well-organized files over many small ones. Before extracting a
+helper, adding a layer of indirection, or introducing an interface "for
+testability," apply two checks (distilled from a "module depth" school of
+thought — Ousterhout's *A Philosophy of Software Design*):
+
+- **The deletion test.** Imagine deleting the module/function. If the
+  complexity it held vanishes, it was a pass-through — inline it back. If
+  the complexity reappears at every caller, it was earning its keep.
+- **One adapter is a hypothetical seam; two is a real one.** Don't
+  introduce an interface/port because "we might swap this later" —
+  introduce it when a second real implementation (a fake used in tests
+  counts) already needs it. The repository interfaces in
+  [backend.md](backend.md)'s layered architecture are the exception: the
+  layering itself requires them, independent of this rule.
+
+A **deep** module hides real behavior behind a small, clear interface. A
+**shallow** one has an interface almost as complex as what's inside —
+it adds a name to learn without paying for itself. One deep module beats
+three shallow ones that each require reading the others to understand it.
+Applies to backend layers and frontend components alike: a component split
+into five files that always change together isn't more testable, it's just
+more to navigate.
 
 ## 🚨 Error handling
 
