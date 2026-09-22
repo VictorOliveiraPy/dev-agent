@@ -19,7 +19,7 @@ Duas orquestrações independentes convivem no mesmo repo: o **loop do
 Supervisor** (arquiteto → dev_backend → dev_frontend, o diagrama abaixo)
 constrói código; o **pesquisador** (`agents/researcher.py`) é um pipeline
 à parte, sem Supervisor, que propõe e valida conteúdo (não código) via
-busca web nativa — ver "Pesquisador" nas decisões abaixo.
+busca web real — ver "Pesquisador" nas decisões abaixo.
 
 ## Diagrama do time
 
@@ -61,7 +61,7 @@ graph TD
 | `agents/project_tools.py` | Tools sandboxed na raiz do projeto real, com bloqueio de segredos/git/venv — auto-manutenção do time |
 | `agents/knowledge.py` | Índice BM25 sobre `standards/*.md` + tool `search_standards` |
 | `agents/usage.py` | Callback que grava cada chamada real ao modelo em `usage_log.jsonl` |
-| `agents/researcher.py` | Papel `pesquisador` — propõe conteúdo via `web_search` nativo e valida cada item contra o schema real do backend antes de virar arquivo. Pipeline à parte, não passa pelo Supervisor |
+| `agents/researcher.py` | Papel `pesquisador` — propõe conteúdo via busca web real (`TavilySearch`) e valida cada item contra o schema real do backend antes de virar arquivo. Pipeline à parte, não passa pelo Supervisor |
 | `standards/*.md` | Convenções de código/design que cada papel segue — arquivos editáveis sem tocar em Python |
 | `dashboard.py` | Streamlit lendo `usage_log.jsonl` (custo/uso) |
 | `web_ui.py` | Streamlit pra rodar o Supervisor e acompanhar a "conversa" do time ao vivo, com tarefa via formulário |
@@ -273,14 +273,20 @@ pros dois. `_ROLE_MODELS` em `agents/team.py` (o Haiku do arquiteto) é
 específico da Anthropic e é ignorado sob `LLM_PROVIDER=deepseek` — não
 existe um "Haiku do DeepSeek" equivalente hoje.
 
-**Exceção deliberada: `agents/researcher.py` nunca segue `LLM_PROVIDER`.**
-Ele sempre passa `provider="anthropic"` explicitamente pro
-`build_chat_model`, porque depende da tool `web_search` nativa
-*server-side* da Anthropic (ver seção "Descoberta de conteúdo via busca
-real" abaixo) — sem equivalente no DeepSeek. Migrar esse papel de verdade
-exigiria trocar por uma tool de busca client-side (Tavily/Serper/Brave) e
-mudar o loop de `research_batch`, que hoje não é um `AgentExecutor` — fica
-como proposta em aberto, não feita.
+**`agents/researcher.py` seguia `LLM_PROVIDER` normal até 2026-09 —
+migrado depois de um bug real em produção.** Antes, o papel sempre passava
+`provider="anthropic"` explicitamente pro `build_chat_model`, porque
+dependia da tool `web_search` nativa *server-side* da Anthropic (ver seção
+"Pesquisador" abaixo) — sem equivalente no DeepSeek. Quando o usuário
+rodou o time inteiro sob `LLM_PROVIDER=deepseek` sem uma
+`ANTHROPIC_API_KEY` configurada (não precisava dela pra mais nada), o
+Pesquisador quebrou com erro de autenticação — o hardcoding forçava
+Anthropic mesmo com o resto do time em outro provedor. A correção trocou
+`web_search` por `TavilySearch` (client-side, precisa de
+`TAVILY_API_KEY`) e reescreveu o loop de `research_batch` pra executar a
+busca de verdade e devolver o resultado como `ToolMessage` — ainda não é
+um `AgentExecutor` genérico (só duas tools: busca e `submit_entries`), mas
+agora funciona com qualquer provedor de tool-calling padrão.
 
 **Propostas descartadas por enquanto (exigem eval que não temos):**
 effort mais baixo no roteador do Supervisor (é uma decisão pequena e
@@ -320,12 +326,13 @@ contexto já vindo pronto, trocar agora é arriscado sem conseguir validar.
 
 ### Pesquisador (conteúdo, não código)
 
-**`web_search` server-side da própria Anthropic, não uma tool
-client-side.** O modelo executa a busca e recebe o resultado na MESMA
-chamada — sem round-trip pelo cliente, sem precisar de uma API de busca
-terceira (Google/Bing) integrada à mão. Por isso este papel NUNCA passa
-por outro provedor (Ollama, OpenRouter) — a tool é exclusiva da API da
-Anthropic, sem equivalente em outro provedor.
+**Busca via `TavilySearch`, client-side (precisa de `TAVILY_API_KEY`).**
+Substituiu a antiga `web_search` nativa *server-side* da Anthropic (ver
+nota em "Multi-provedor" acima) — o loop de `research_batch` agora executa
+a busca de verdade e devolve o resultado como `ToolMessage`, igual
+qualquer outra tool deste projeto. Isso tirou o hardcoding em
+`provider="anthropic"`: o Pesquisador segue `LLM_PROVIDER` normal, como o
+resto do time.
 
 **Nunca confiar no que o modelo AFIRMA ter encontrado — validar contra o
 schema real e verificar cada URL de imagem de verdade.** O mesmo gap
@@ -336,11 +343,12 @@ importa o schema Pydantic REAL do backend (não duplicado aqui) e faz uma
 requisição HTTP de verdade em cada imagem proposta — descartando só a
 imagem (não a entrada inteira) se ela não resolver.
 
-**Sonnet 5, não Opus 5 (padrão dos demais papéis).** Pesquisa grounded em
-busca depende mais de seguir regra à risca (nunca inventar, sempre citar)
-do que do raciocínio mais caro do Opus — e o custo real observado desse
-papel já é alto por causa do próprio `web_search` (tokens de busca
-acumulados), não por precisar do modelo mais caro.
+**Sem override de modelo próprio — usa o padrão do provedor ativo**
+(`agents/llm.py::_DEFAULT_MODELS`), igual todo papel sem entrada em
+`_ROLE_MODELS`. Pesquisa grounded em busca depende mais de seguir regra à
+risca (nunca inventar, sempre citar) do que de um modelo mais caro, e o
+custo real observado desse papel já é alto por causa da própria busca
+(tokens acumulados por resultado), não por precisar do modelo mais caro.
 
 ### Interface web e streaming do Supervisor
 

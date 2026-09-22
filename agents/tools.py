@@ -198,9 +198,27 @@ def run_command(command: str) -> str:
             cwd=WORKSPACE,
             capture_output=True,
             text=True,
+            # errors="replace": achado no log de produção do escritório —
+            # `text=True` sozinho decodifica com o codec padrão do Windows
+            # (cp1252 nesta máquina), e um comando cuja saída tem um byte
+            # inválido pra esse codec (ex.: um arquivo em UTF-8 com acento)
+            # derruba a THREAD interna que o subprocess usa pra ler
+            # stdout/stderr em paralelo quando `timeout` é passado
+            # (`subprocess.py::_readerthread`) — a exceção morre na thread
+            # sem propagar, mas `result.stdout`/`stderr` ficam None (nunca
+            # atribuídos), e o `+` logo abaixo virava TypeError: unsupported
+            # operand type(s) for +: 'NoneType' and 'str' (visto rodando de
+            # verdade). errors="replace" nunca falha a decodificação — troca
+            # o byte inválido por "�" em vez de matar a thread (mesma ideia
+            # já usada em read_file pro mesmo tipo de encoding problemático).
+            errors="replace",
             timeout=180,
         )
-        output = result.stdout + result.stderr
+        # Guard extra, barata: TypeError não é ToolException — se
+        # stdout/stderr vierem None por qualquer outro motivo não previsto
+        # aqui, handle_tool_error (fim do módulo) NÃO intercepta esse tipo
+        # de exceção, e ela derrubava a rodada inteira do AgentExecutor.
+        output = (result.stdout or "") + (result.stderr or "")
         if not output:
             return f"(sem saída, código de retorno {result.returncode})"
         return output[-4000:]

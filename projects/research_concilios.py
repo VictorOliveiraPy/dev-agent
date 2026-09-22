@@ -31,7 +31,7 @@ sys.path.insert(0, str(BACKEND_PATH))
 
 from app.models import Concilio  # noqa: E402
 
-from agents import researcher  # noqa: E402
+from agents.llm import current_provider  # noqa: E402
 from agents.researcher import research_batch, validate_batch  # noqa: E402
 
 DATA_FILE = BACKEND_PATH / "app" / "data" / "concilios.json"
@@ -135,7 +135,7 @@ def main() -> None:
             continue
 
         valid, warnings = validate_batch(
-            raw_items, Concilio, existing_slugs, model=researcher._DEFAULT_MODEL
+            raw_items, Concilio, existing_slugs, model=current_provider()
         )
         for warning in warnings:
             print(f"  ⚠ {warning}")

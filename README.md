@@ -15,9 +15,9 @@ backend, frontend — sozinho ou orquestrado por um Supervisor.
 - **dev_frontend** — implementa a UI (React), lendo o contrato real do
   backend antes de codar.
 - **pesquisador** (`agents/researcher.py`) — propõe conteúdo novo via
-  `web_search` nativo da Anthropic, valida cada item contra o schema real
-  do backend antes de virar arquivo (nunca confia no que o modelo afirma
-  ter encontrado).
+  busca web real (`TavilySearch`, precisa de `TAVILY_API_KEY`), valida
+  cada item contra o schema real do backend antes de virar arquivo (nunca
+  confia no que o modelo afirma ter encontrado).
 - **supervisor** (`agents/supervisor.py`) — decide sozinho qual
   especialista aciona e quando, via saída estruturada.
 
@@ -152,9 +152,9 @@ DEEPSEEK_API_KEY=...
 API real: tool call única estruturada, o loop completo do `AgentExecutor`
 (múltiplas tool calls reais em sequência) e `.with_structured_output()` —
 ver ARCHITECTURE.md, seção "Propostas testadas e descartadas", pro
-detalhe de cada teste. **Exceção: `agents/researcher.py` sempre usa
-Anthropic**, porque depende da tool `web_search` nativa *server-side*, sem
-equivalente no DeepSeek.
+detalhe de cada teste. `agents/researcher.py` também segue `LLM_PROVIDER`
+normal — a busca web usa `TavilySearch` (client-side, precisa de
+`TAVILY_API_KEY`), não mais a antiga tool `web_search` nativa da Anthropic.
 
 ## Qualidade
 

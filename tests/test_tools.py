@@ -65,6 +65,29 @@ def test_should_replace_invalid_bytes_instead_of_raising_when_file_is_not_utf8(
     assert "�" in result  # byte inválido virou replacement char, não exceção
 
 
+def test_should_not_crash_when_command_output_has_a_byte_invalid_for_the_locale_codec(
+    tmp_path, monkeypatch
+):
+    """Bug real de produção, raiz do TypeError visto no log do escritório
+    ("unsupported operand type(s) for +: 'NoneType' and 'str'"): sem
+    errors="replace", um byte inválido pro codec da locale (cp1252 nesta
+    máquina) na saída do comando derruba a THREAD interna que o subprocess
+    usa pra ler stdout/stderr em paralelo (`subprocess.py::_readerthread`,
+    só entra em cena porque run_command passa `timeout`) — a exceção não
+    propaga pra cá, mas result.stdout fica None (nunca atribuído), e o
+    `result.stdout + result.stderr` de run_command virava TypeError.
+    Reproduzido de verdade (não simulado): `type` num arquivo com um byte
+    (0x81) que não existe em cp1252."""
+    monkeypatch.setattr(tools, "WORKSPACE", tmp_path)
+    bad_file = tmp_path / "saida_invalida.txt"
+    bad_file.write_bytes(b"ola \x81 mundo")
+
+    result = tools.run_command.run({"command": f"type {bad_file.name}"})
+
+    assert "mundo" in result
+    assert "�" in result  # byte inválido virou replacement char, não exceção
+
+
 def test_should_prune_noise_directories_when_listing(tmp_path, monkeypatch):
     """Bug real, achado antes de liberar DEV_AGENT_WORKSPACE pra cobrir
     vários projetos reais: sem podar node_modules/.venv/.git, um list_dir

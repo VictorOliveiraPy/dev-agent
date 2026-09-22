@@ -5,3 +5,4 @@ __pycache__/
 workspace/
 usage_log.jsonl
 quality_log.jsonl
+*.log

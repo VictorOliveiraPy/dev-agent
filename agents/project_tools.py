@@ -101,9 +101,11 @@ def run_project_command(command: str) -> str:
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=90,
         )
-        output = result.stdout + result.stderr
+        # Ver mesmo guard/encoding e motivo em agents/tools.py::run_command.
+        output = (result.stdout or "") + (result.stderr or "")
         if not output:
             return f"(sem saída, código de retorno {result.returncode})"
         return output[-4000:]

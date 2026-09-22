@@ -33,7 +33,6 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.callbacks import BaseCallbackHandler
 
 from agents.llm import current_provider
-from agents.researcher import _DEFAULT_MODEL as RESEARCHER_MODEL
 from agents.researcher import research_batch, validate_batch
 from agents.supervisor import run
 from agents.tools import _IGNORED_DIR_NAMES, WORKSPACE
@@ -401,7 +400,7 @@ async def _stream_research(websocket: WebSocket, categoria: str, task: str) -> N
             loop.call_soon_threadsafe(
                 queue.put_nowait, ("status", "Pesquisando (busca web real)…")
             )
-            raw_items = research_batch(task, item_model, model=RESEARCHER_MODEL)
+            raw_items = research_batch(task, item_model)
 
             status_text = (
                 f"{len(raw_items)} item(ns) proposto(s) — validando contra o schema real…"
@@ -409,7 +408,7 @@ async def _stream_research(websocket: WebSocket, categoria: str, task: str) -> N
             loop.call_soon_threadsafe(queue.put_nowait, ("status", status_text))
             existing_slugs = _load_existing_slugs(categoria)
             valid, warnings = validate_batch(
-                raw_items, item_model, existing_slugs, model=RESEARCHER_MODEL
+                raw_items, item_model, existing_slugs, model=current_provider()
             )
             for warning in warnings:
                 loop.call_soon_threadsafe(queue.put_nowait, ("warning", warning))

@@ -1,14 +1,15 @@
 """Testes para agents/researcher.py.
 
-Nenhum destes testes chama a API da Anthropic nem faz requisição HTTP de
-verdade: o modelo é um fake local, e `_verify_image_url` é monkeypatchado
+Nenhum destes testes chama uma API de LLM real, a API da Tavily, nem faz
+requisição HTTP de verdade: o modelo e a tool de busca são fakes locais
+(ver `fake_model`/`fake_search`), e `_verify_image_url` é monkeypatchado
 onde `validate_batch` precisaria dele.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -68,10 +69,18 @@ class _ItemModel(BaseModel):
     imagem_credito: str | None = None
 
 
-def _submit_entries_message(itens: list[dict]) -> AIMessage:
+def _submit_entries_message(itens: list[dict], call_id: str = "call_submit") -> AIMessage:
     return AIMessage(
         content="",
-        tool_calls=[{"name": "submit_entries", "args": {"itens": itens}, "id": "call_1"}],
+        tool_calls=[{"name": "submit_entries", "args": {"itens": itens}, "id": call_id}],
+        usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+    )
+
+
+def _search_call_message(query: str, call_id: str = "call_search") -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": "tavily_search", "args": {"query": query}, "id": call_id}],
         usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
     )
 
@@ -83,12 +92,15 @@ def _text_only_message(text: str) -> AIMessage:
     )
 
 
-def _truncated_message() -> AIMessage:
-    """Simula o bug real visto em produção: resposta cortada por max_tokens
-    antes de terminar o JSON da tool call."""
+def _truncated_message(field: str = "stop_reason", value: str = "max_tokens") -> AIMessage:
+    """Simula o bug real visto em produção: resposta cortada por limite de
+    tokens antes de terminar o JSON da tool call. `field`/`value` permitem
+    simular tanto o formato da Anthropic ("stop_reason"="max_tokens") quanto
+    o de provedores OpenAI-compatíveis como o DeepSeek
+    ("finish_reason"="length")."""
     return AIMessage(
         content="",
-        response_metadata={"stop_reason": "max_tokens"},
+        response_metadata={field: value},
         usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
     )
 
@@ -103,6 +115,22 @@ def _malformed_submit_message() -> AIMessage:
     )
 
 
+class _FakeSearchTool:
+    """Substitui `TavilySearch` nos testes: sem chamada de rede, sem exigir
+    `TAVILY_API_KEY`. Registra cada chamada pra testes que precisam
+    inspecionar o que foi pesquisado."""
+
+    def __init__(self, result: Any = None) -> None:
+        self.result = result if result is not None else {
+            "results": [{"title": "Fonte", "url": "https://x.org/y", "content": "..."}]
+        }
+        self.calls: list[dict] = []
+
+    def invoke(self, args: dict) -> Any:
+        self.calls.append(args)
+        return self.result
+
+
 @pytest.fixture
 def fake_model(monkeypatch):
     def _install(responses: list[AIMessage]) -> _ScriptedFakeChatModel:
@@ -113,9 +141,26 @@ def fake_model(monkeypatch):
     return _install
 
 
-def test_should_always_force_anthropic_provider_regardless_of_llm_provider_env(monkeypatch):
-    """web_search não tem equivalente fora da Anthropic — este papel nunca
-    segue LLM_PROVIDER, mesmo que o resto do time esteja rodando DeepSeek."""
+@pytest.fixture(autouse=True)
+def fake_search(monkeypatch) -> _FakeSearchTool:
+    """Autouse: NENHUM teste de research_batch deve depender de uma
+    TAVILY_API_KEY real ou de rede — `_web_search_tool()` normalmente
+    instancia `TavilySearch()`, que valida a env var na hora da construção
+    (ver `langchain_tavily._utilities.TavilySearchAPIWrapper`), então até
+    testes que nunca acionam a busca precisam desta troca. A troca acontece
+    aqui, incondicionalmente (não dentro de uma fábrica que só monkeypatcha
+    quando chamada) — testes que precisam inspecionar `.calls` só pedem
+    `fake_search` como parâmetro normal; é a MESMA instância já aplicada."""
+    fake = _FakeSearchTool()
+    monkeypatch.setattr(researcher, "_web_search_tool", lambda: fake)
+    return fake
+
+
+def test_should_follow_active_llm_provider_like_the_rest_of_the_team(monkeypatch):
+    """A busca deixou de depender de uma tool nativa exclusiva da Anthropic
+    (agora é `TavilySearch`, client-side, funciona com qualquer provedor de
+    tool-calling) — este papel não força mais nenhum provedor específico,
+    igual ao resto do time (ver agents/team.py)."""
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     captured = {}
     fake = _ScriptedFakeChatModel(responses=[_submit_entries_message([{"slug": "x"}])])
@@ -128,7 +173,7 @@ def test_should_always_force_anthropic_provider_regardless_of_llm_provider_env(m
 
     researcher.research_batch("pesquise 1 concílio", _ItemModel)
 
-    assert captured["provider"] == "anthropic"
+    assert "provider" not in captured
 
 
 def test_should_return_items_when_model_calls_submit_entries_on_first_try(fake_model):
@@ -153,20 +198,64 @@ def test_should_retry_when_model_does_not_call_submit_entries_first(fake_model):
     assert fake.call_count == 2
 
 
+def test_should_execute_a_real_search_call_and_feed_the_result_back(fake_model, fake_search):
+    """A busca agora é client-side: quando o modelo chama a tool de busca,
+    research_batch precisa executá-la de verdade (via `search_tool.invoke`)
+    e devolver o resultado como ToolMessage antes de insistir — diferente
+    da antiga web_search da Anthropic, resolvida no servidor dela."""
+    itens = [{"slug": "efeso", "titulo": "Concílio de Éfeso"}]
+    fake_model([
+        _search_call_message("Concílio de Éfeso 431"),
+        _submit_entries_message(itens),
+    ])
+
+    result = researcher.research_batch("pesquise 1 concílio", _ItemModel)
+
+    assert result == itens
+    assert fake_search.calls == [{"query": "Concílio de Éfeso 431"}]
+
+
+def test_should_stop_offering_real_searches_once_the_budget_is_exhausted(fake_model, fake_search):
+    itens = [{"slug": "efeso", "titulo": "Concílio de Éfeso"}]
+    fake_model([
+        _search_call_message("busca 1", call_id="c1"),
+        _search_call_message("busca 2", call_id="c2"),
+        _submit_entries_message(itens),
+    ])
+
+    result = researcher.research_batch(
+        "pesquise 1 concílio", _ItemModel, max_search_calls=1
+    )
+
+    assert result == itens
+    # só a primeira busca foi executada de verdade — a segunda tool call de
+    # busca recebeu o aviso de limite atingido, sem gastar outra chamada real.
+    assert len(fake_search.calls) == 1
+
+
 def test_should_raise_when_model_never_calls_submit_entries(fake_model):
     fake_model([_text_only_message("desculpe, não encontrei nada")] * 3)
 
     with pytest.raises(RuntimeError, match="submit_entries"):
-        researcher.research_batch("pesquise 1 concílio", _ItemModel, max_attempts=3)
+        researcher.research_batch("pesquise 1 concílio", _ItemModel, max_iterations=3)
 
 
-def test_should_raise_clear_error_when_response_is_truncated_by_max_tokens(fake_model):
+def test_should_raise_clear_error_when_response_is_truncated_by_anthropic_stop_reason(fake_model):
     """Bug real (ver ARCHITECTURE.md): lote grande demais corta a resposta
     no meio do JSON da tool call. Isso deve falhar alto e claro, não com
     um KeyError sem contexto na hora de ler call['args']['itens']."""
-    fake_model([_truncated_message()])
+    fake_model([_truncated_message("stop_reason", "max_tokens")])
 
-    with pytest.raises(RuntimeError, match="max_tokens"):
+    with pytest.raises(RuntimeError, match="limite de tokens"):
+        researcher.research_batch("pesquise 18 concílios de uma vez", _ItemModel)
+
+
+def test_should_raise_clear_error_when_response_is_truncated_by_openai_finish_reason(fake_model):
+    """Mesmo bug, formato do provedor OpenAI-compatível (DeepSeek): o campo
+    é 'finish_reason'='length', não 'stop_reason'='max_tokens'."""
+    fake_model([_truncated_message("finish_reason", "length")])
+
+    with pytest.raises(RuntimeError, match="limite de tokens"):
         researcher.research_batch("pesquise 18 concílios de uma vez", _ItemModel)
 
 

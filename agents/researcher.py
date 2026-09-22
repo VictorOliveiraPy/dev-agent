@@ -2,13 +2,18 @@
 web real, e valida o que ele propõe antes de qualquer coisa virar arquivo.
 
 Diferença de desenho em relação aos outros papéis (ver `team.py`): este
-módulo NÃO usa `AgentExecutor`. A busca web (`web_search`) é uma tool
-*server-side* da própria Anthropic — o modelo a executa e recebe o
-resultado dentro da mesma chamada, sem round-trip pelo cliente. A única
-tool que este módulo precisa interceptar é `submit_entries`, a saída
-final estruturada. Por isso um loop simples (chamar o modelo, checar se
-ele já chamou `submit_entries`, senão insistir) é suficiente — não é
-preciso o loop genérico de tool-calling do LangChain.
+módulo NÃO usa `AgentExecutor`. A busca web é a tool `TavilySearch` (ver
+`agents/llm.py` — precisa de `TAVILY_API_KEY`), uma tool *client-side*
+comum: o loop abaixo executa a chamada de verdade e devolve o resultado
+como `ToolMessage`, igual a qualquer outra tool deste projeto. Isso
+substitui a antiga tool `web_search` nativa da Anthropic (server-side,
+sem equivalente no DeepSeek) — este papel já foi hardcoded em
+`provider="anthropic"` por causa dela; agora segue `LLM_PROVIDER` como
+todo o resto do time (ver `agents/llm.py::build_chat_model`). A outra
+tool que este módulo intercepta é `submit_entries`, a saída final
+estruturada — por isso o loop ainda é próprio (chamar o modelo, executar
+buscas se pedidas, checar se já chamou `submit_entries`, senão insistir),
+não o loop genérico do LangChain.
 
 O ponto mais importante deste módulo não é a busca, é a validação depois
 dela. O gap documentado em PROGRESS.md — "os agentes não tinham como se
@@ -20,23 +25,19 @@ schema Pydantic REAL do backend (importado do repositório
 `acervo-catolico-api`, não duplicado aqui) e faz uma requisição HTTP de
 verdade em cada URL de imagem proposta, descartando a imagem (nunca a
 entrada inteira) se ela não resolver como imagem de verdade.
-
-Usa Sonnet 5 por padrão, não o Opus 5 dos demais papéis (ver
-`agents/llm.py::_DEFAULT_MODEL`) — pesquisa grounded em busca depende
-mais de seguir regras à risca (nunca inventar, sempre citar) do que do
-raciocínio mais caro do Opus, e o custo real observado desse papel é alto
-por causa do próprio `web_search` (ver PROGRESS.md), não por precisar do
-modelo mais caro.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 import httpx
-from langchain_core.messages import HumanMessage
-from pydantic import BaseModel, ValidationError
+from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.tools import BaseTool, StructuredTool
+from langchain_tavily import TavilySearch
+from pydantic import BaseModel, ValidationError, create_model
 
 from agents.llm import build_chat_model
 from agents.quality import record_quality
@@ -46,11 +47,6 @@ from agents.usage import usage_handler
 logger = logging.getLogger(__name__)
 
 ROLE = "pesquisador"
-
-# Mais barato que o Opus 5 padrão do time (agents/llm.py) — ver nota no
-# docstring do módulo sobre por que este papel não precisa do modelo mais
-# caro.
-_DEFAULT_MODEL = "claude-sonnet-5"
 
 # Descrição do papel — mesma convenção de agents.team.ROLES, mas vive
 # aqui (não lá) porque este papel não segue o padrão create_agent /
@@ -105,45 +101,50 @@ _PERSONA = (
 )
 
 
-def _web_search_tool(max_uses: int = 15) -> dict[str, Any]:
-    """Tool nativa de busca web da Anthropic — resolvida no servidor.
-
-    `max_uses` limita quantas buscas o modelo pode fazer numa única
-    chamada, como teto de custo/tempo por lote — não é um limite de
-    qualidade, é proteção contra um loop de busca sem necessidade.
+def _web_search_tool() -> BaseTool:
+    """Tool de busca web client-side (Tavily — precisa de `TAVILY_API_KEY`
+    no `.env`) — substitui a antiga `web_search` nativa da Anthropic (ver
+    docstring do módulo). `search_depth="advanced"` e `include_images=True`
+    porque o Pesquisador precisa tanto de conteúdo textual quanto de URLs de
+    imagem real (Wikimedia Commons etc.) para propor uma entrada completa.
     """
-    return {"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses}
+    return TavilySearch(max_results=5, search_depth="advanced", include_images=True)
 
 
-def _submit_entries_tool(item_schema: dict[str, Any]) -> dict[str, Any]:
+def _submit_entries_tool(item_model: type[BaseModel]) -> StructuredTool:
     """Tool "de verdade" (client-side): a saída final e estruturada do lote.
 
-    O schema de cada item é o `model_json_schema()` do modelo Pydantic
-    real da categoria (ver `research_batch`) — a mesma fonte usada depois
-    para validar, então o modelo nunca vê um contrato diferente do que
-    será exigido dele.
+    O schema de cada item vem do próprio modelo Pydantic REAL da categoria
+    (ver `research_batch`) — a mesma fonte usada depois para validar, então
+    o modelo nunca vê um contrato diferente do que será exigido dele. A
+    função associada nunca é chamada de fato: `research_batch` intercepta
+    os argumentos direto de `response.tool_calls`, igual fazia com o dict
+    de tool "cru" da Anthropic antes desta função existir.
     """
-    return {
-        "name": "submit_entries",
-        "description": (
+    args_model = create_model("SubmitEntriesArgs", itens=(list[item_model], ...))
+
+    def _submit(**_kwargs: Any) -> str:
+        return "ok"
+
+    return StructuredTool.from_function(
+        func=_submit,
+        name="submit_entries",
+        description=(
             "Envia o lote final de entradas pesquisadas para esta tarefa, "
             "uma por item, depois de concluída toda a pesquisa necessária."
         ),
-        "input_schema": {
-            "type": "object",
-            "properties": {"itens": {"type": "array", "items": item_schema}},
-            "required": ["itens"],
-        },
-    }
+        args_schema=args_model,
+    )
 
 
 def research_batch(
     task: str,
     item_model: type[BaseModel],
     *,
-    max_attempts: int = 3,
+    max_iterations: int = 30,
+    max_search_calls: int = 15,
     max_tokens: int = 16000,
-    model: str = _DEFAULT_MODEL,
+    model: str | None = None,
 ) -> list[dict[str, Any]]:
     """Pesquisa e propõe um lote de entradas — SEM validar (ver `validate_batch`).
 
@@ -154,10 +155,14 @@ def research_batch(
         item_model: o modelo Pydantic REAL da categoria (ex.: `Concilio`,
             importado do backend) — vira tanto o schema da tool quanto,
             depois, o validador em `validate_batch`.
-        max_attempts: quantas vezes insistir se o modelo responder sem
-            chamar `submit_entries` (ex.: fez só uma pergunta de volta).
-        model: ID do modelo Claude. Padrão é Sonnet 5, não o Opus 5 dos
-            demais papéis — ver nota no docstring do módulo.
+        max_iterations: teto de idas e voltas com o modelo (cada busca ou
+            resposta sem `submit_entries` consome uma) — proteção contra
+            loop de busca sem fim, não um limite de qualidade.
+        max_search_calls: teto de buscas web reais no lote inteiro (custo
+            de API da Tavily) — depois de esgotado, o modelo é instruído a
+            chamar `submit_entries` com o que já tem em vez de buscar mais.
+        model: ID do modelo a usar. Se omitido, usa o padrão do provedor
+            ativo (`LLM_PROVIDER`) — ver `agents/llm.py::build_chat_model`.
         max_tokens: teto de saída do modelo. Um lote com muitos itens
             (bug real já visto: 18 concílios numa chamada só, 200k tokens
             de entrada por causa dos resultados de busca acumulados)
@@ -167,68 +172,96 @@ def research_batch(
 
     Returns:
         A lista bruta de itens (dicts) que o modelo propôs — ainda não
-        validada nem verificada. Gasta tokens de API reais a cada chamada.
+        validada nem verificada. Gasta tokens de API reais a cada chamada
+        (e uma busca real por chamada de `tavily_search`).
 
     Raises:
-        RuntimeError: se a resposta for cortada por `max_tokens`
-            (`stop_reason == "max_tokens"`), se `submit_entries` vier sem
-            o campo `itens`, ou se o modelo não chamar `submit_entries`
-            depois de `max_attempts` tentativas.
+        RuntimeError: se uma resposta for cortada por limite de tokens
+            (`stop_reason`/`finish_reason` de truncamento), se
+            `submit_entries` vier sem o campo `itens`, ou se o modelo não
+            chamar `submit_entries` depois de `max_iterations` idas e
+            voltas.
     """
-    tools = [_web_search_tool(), _submit_entries_tool(item_model.model_json_schema())]
-    # provider="anthropic" é fixo, não segue LLM_PROVIDER: web_search é uma
-    # tool nativa exclusiva da Anthropic (ver agents/llm.py e
-    # ARCHITECTURE.md) — este papel nunca migra de provedor com o resto do
-    # time.
+    search_tool = _web_search_tool()
+    submit_tool = _submit_entries_tool(item_model)
     chat_model = (
-        build_chat_model(max_tokens=max_tokens, model=model, provider="anthropic")
-        .bind_tools(tools)
+        build_chat_model(max_tokens=max_tokens, model=model)
+        .bind_tools([search_tool, submit_tool])
         .with_config(callbacks=[usage_handler], tags=[f"role:{ROLE}"])
     )
 
     messages: list[Any] = [_system_message(_PERSONA), HumanMessage(content=task)]
+    search_calls_left = max_search_calls
 
-    for attempt in range(max_attempts):
+    for iteration in range(max_iterations):
         response = chat_model.invoke(messages)
+        messages.append(response)
 
-        stop_reason = response.response_metadata.get("stop_reason")
-        if stop_reason == "max_tokens":
-            # Bug real já visto neste projeto (ver ARCHITECTURE.md): a
-            # resposta foi cortada no meio — inclusive, possivelmente, no
-            # meio do JSON da tool call. Não adianta tentar ler tool_calls
-            # daqui: o pedido era grande demais para max_tokens. Falhar
-            # alto e claro é melhor que um KeyError sem contexto.
+        # Nomes diferentes por provedor pro mesmo evento (truncamento por
+        # teto de tokens): Anthropic usa "stop_reason"="max_tokens",
+        # OpenAI-compatível (DeepSeek) usa "finish_reason"="length". Não dá
+        # pra confiar em tool_calls daqui: o pedido era grande demais para
+        # max_tokens, possivelmente cortado no meio do JSON de uma tool
+        # call — falhar alto e claro é melhor que um KeyError sem contexto
+        # (bug real já visto neste projeto, ver ARCHITECTURE.md).
+        truncated = response.response_metadata.get(
+            "stop_reason"
+        ) == "max_tokens" or response.response_metadata.get("finish_reason") == "length"
+        if truncated:
             raise RuntimeError(
-                "Resposta cortada por max_tokens (stop_reason=max_tokens) — "
-                "o lote pedido é grande demais para uma chamada só. Peça "
-                "menos itens por vez ou aumente max_tokens."
+                "Resposta cortada por limite de tokens — o lote pedido é "
+                "grande demais para uma chamada só. Peça menos itens por "
+                "vez ou aumente max_tokens."
             )
 
-        for call in response.tool_calls:
-            if call["name"] == "submit_entries":
-                if "itens" not in call.get("args", {}):
-                    raise RuntimeError(
-                        "submit_entries foi chamada sem o campo 'itens' "
-                        f"esperado — args recebidos: {call.get('args')!r}"
+        if not response.tool_calls:
+            messages.append(
+                HumanMessage(
+                    content=(
+                        "Chame agora a tool submit_entries com os itens já "
+                        "pesquisados até aqui."
                     )
-                return call["args"]["itens"]
-        messages.append(response)
-        messages.append(
-            HumanMessage(
-                content=(
-                    "Chame agora a tool submit_entries com os itens já "
-                    "pesquisados até aqui."
                 )
             )
-        )
-        logger.warning(
-            "Pesquisador respondeu sem chamar submit_entries (tentativa %d/%d).",
-            attempt + 1,
-            max_attempts,
-        )
+            logger.warning(
+                "Pesquisador respondeu sem chamar nenhuma tool (iteração %d/%d).",
+                iteration + 1,
+                max_iterations,
+            )
+            continue
+
+        submit_call = None
+        for call in response.tool_calls:
+            if call["name"] == "submit_entries":
+                submit_call = call
+                continue
+            # Qualquer outra tool chamada é a busca — executada de verdade
+            # aqui (client-side), diferente da antiga web_search server-side
+            # da Anthropic (ver docstring do módulo).
+            if search_calls_left <= 0:
+                result_text = (
+                    "Limite de buscas deste lote atingido — chame "
+                    "submit_entries com o que você já apurou até aqui."
+                )
+            else:
+                search_calls_left -= 1
+                result = search_tool.invoke(call["args"])
+                result_text = (
+                    result if isinstance(result, str)
+                    else json.dumps(result, ensure_ascii=False, default=str)
+                )
+            messages.append(ToolMessage(content=result_text, tool_call_id=call["id"]))
+
+        if submit_call is not None:
+            if "itens" not in submit_call.get("args", {}):
+                raise RuntimeError(
+                    "submit_entries foi chamada sem o campo 'itens' "
+                    f"esperado — args recebidos: {submit_call.get('args')!r}"
+                )
+            return submit_call["args"]["itens"]
 
     raise RuntimeError(
-        f"Pesquisador não chamou submit_entries após {max_attempts} tentativas."
+        f"Pesquisador não chamou submit_entries após {max_iterations} iterações."
     )
 
 
