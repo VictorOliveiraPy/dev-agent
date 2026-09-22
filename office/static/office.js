@@ -338,6 +338,11 @@ const runBtn = document.getElementById("run-btn");
 const taskInput = document.getElementById("task-input");
 const configLineEl = document.getElementById("config-line");
 const projectSelectEl = document.getElementById("project-select");
+const researchPanelEl = document.getElementById("research-panel");
+const researchCategorySelectEl = document.getElementById("research-category-select");
+const researchTaskInputEl = document.getElementById("research-task-input");
+const researchStatusLineEl = document.getElementById("research-status-line");
+const researchBtn = document.getElementById("research-btn");
 
 let logHasEntries = false;
 
@@ -413,6 +418,27 @@ fetch("/projects")
     /* seletor fica só com "(todos)" — não é crítico pro resto funcionar */
   });
 
+// Painel do pesquisador: só aparece se o backend do acervo estiver no
+// workspace ativo (ver office/server.py::research_categories) — sem ele
+// não tem categoria/schema real pra validar contra, então não faz sentido
+// oferecer o botão.
+fetch("/research/categories")
+  .then((r) => r.json())
+  .then((data) => {
+    const categories = data.categories || [];
+    if (categories.length === 0) return;
+    for (const name of categories) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      researchCategorySelectEl.appendChild(option);
+    }
+    researchPanelEl.hidden = false;
+  })
+  .catch(() => {
+    /* painel fica escondido — mesmo tratamento de erro do /projects acima */
+  });
+
 // ---------------------------------------------------------------------
 // WebSocket: manda a tarefa, recebe eventos (decisão/resultado do
 // supervisor, tool calls individuais, uso de token) e status de execução.
@@ -420,6 +446,11 @@ fetch("/projects")
 
 let ws = null;
 let running = false;
+// Qual painel disparou a tarefa em curso — "status"/"error"/"usage"/"done"
+// são compartilhados entre os dois fluxos (só uma tarefa por vez, trava no
+// servidor: ver office/server.py::websocket_endpoint), então precisa saber
+// pra qual linha de status e botão devolver o controle quando termina.
+let activeMode = "run";
 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -439,14 +470,41 @@ function handleMessage(message) {
   if (message.type === "status") {
     running = message.running;
     runBtn.disabled = running;
-    runBtn.textContent = running ? "⏳ Rodando…" : "▶ Rodar";
-    if (!running) statusLineEl.textContent = "Concluído — pronto pra próxima tarefa.";
+    researchBtn.disabled = running;
+    runBtn.textContent = running && activeMode === "run" ? "⏳ Rodando…" : "▶ Rodar";
+    researchBtn.textContent = running && activeMode === "research" ? "⏳ Pesquisando…" : "🔎 Pesquisar";
+    if (!running) {
+      statusLineEl.textContent = "Concluído — pronto pra próxima tarefa.";
+      researchStatusLineEl.textContent = "Concluído — pronto pra próxima pesquisa.";
+    }
     return;
   }
 
   if (message.type === "error") {
     appendLog("error", "Erro", message.message);
-    statusLineEl.textContent = "Deu erro — veja o log.";
+    if (activeMode === "research") {
+      researchStatusLineEl.textContent = "Deu erro — veja o log.";
+    } else {
+      statusLineEl.textContent = "Deu erro — veja o log.";
+    }
+    return;
+  }
+
+  if (message.type === "research_status") {
+    appendLog("pesquisador", "Pesquisador", message.text, { dim: true });
+    researchStatusLineEl.textContent = message.text;
+    return;
+  }
+
+  if (message.type === "research_warning") {
+    appendLog("pesquisador", "Pesquisador", `⚠ ${message.text}`, { dim: true });
+    return;
+  }
+
+  if (message.type === "research_result") {
+    const text = `${message.valid} de ${message.proposed} item(ns) validado(s) e gravado(s) em "${message.categoria}".`;
+    appendLog("pesquisador", "Pesquisador", text);
+    researchStatusLineEl.textContent = text;
     return;
   }
 
@@ -503,6 +561,7 @@ function handleMessage(message) {
 function runTask() {
   const task = taskInput.value.trim();
   if (!task || running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  activeMode = "run";
   resetState();
   renderUsageBars();
   runTokensEl.innerHTML = "0 tokens nesta rodada";
@@ -515,9 +574,24 @@ function runTask() {
   ws.send(JSON.stringify({ action: "run", task, project }));
 }
 
+function runResearch() {
+  const categoria = researchCategorySelectEl.value;
+  const task = researchTaskInputEl.value.trim();
+  if (!categoria || !task || running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  activeMode = "research";
+  logHasEntries = false;
+  logEl.innerHTML = "";
+  researchStatusLineEl.textContent = `Pesquisando para "${categoria}"…`;
+  ws.send(JSON.stringify({ action: "research", categoria, task }));
+}
+
 runBtn.addEventListener("click", runTask);
 taskInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) runTask();
+});
+researchBtn.addEventListener("click", runResearch);
+researchTaskInputEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) runResearch();
 });
 
 const examplesEl = document.getElementById("examples");

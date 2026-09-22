@@ -8,9 +8,12 @@ validado manualmente, ver PROGRESS.md).
 """
 
 import json
+import sys
 
+import pytest
 from fastapi.testclient import TestClient
 
+from office import server
 from office.server import (
     app,
     build_task_with_project_context,
@@ -152,3 +155,124 @@ def test_should_skip_malformed_line_when_reading_new_usage(tmp_path):
 
     assert entries == [valid]
     assert offset == 2
+
+
+# ---------------------------------------------------------------------
+# Pesquisador: painel próprio (categoria + schema real do backend), ver
+# _stream_research. Testes de lógica pura só — não chamam research_batch
+# nem a API real (isso foi validado manualmente, ver PROGRESS.md).
+# ---------------------------------------------------------------------
+
+_FAKE_BACKEND_MODELS_PY = '''
+from enum import Enum
+
+class Category(str, Enum):
+    CONCILIOS = "concilios"
+    SANTOS = "santos"
+
+class Concilio:
+    pass
+
+class Santo:
+    pass
+
+ENTRY_MODEL_BY_CATEGORY = {Category.CONCILIOS: Concilio, Category.SANTOS: Santo}
+'''
+
+
+def _install_fake_backend(tmp_path, monkeypatch):
+    """Cria um backend falso mínimo (só o que _load_acervo_models precisa)
+    dentro de tmp_path, e aponta WORKSPACE/sys.modules pra ele — evita
+    depender do repositório real do Acervo Católico estar clonado do lado
+    pra testar o import dinâmico."""
+    backend_dir = tmp_path / server._ACERVO_BACKEND_DIRNAME
+    app_dir = backend_dir / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "__init__.py").write_text("", encoding="utf-8")
+    (app_dir / "models.py").write_text(_FAKE_BACKEND_MODELS_PY, encoding="utf-8")
+    monkeypatch.setattr(server, "WORKSPACE", tmp_path)
+    # Um `app` de verdade (Acervo-Cat-lico-API) pode já estar importado por
+    # outro teste desta mesma sessão do pytest — limpa pra forçar reimport
+    # do módulo falso, não o cache do de verdade.
+    for name in list(sys.modules):
+        if name == "app" or name.startswith("app."):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+    return backend_dir
+
+
+def test_should_raise_when_acervo_backend_is_not_in_workspace(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "WORKSPACE", tmp_path / "vazio")
+
+    with pytest.raises(FileNotFoundError, match="Backend do acervo"):
+        server._load_acervo_models()
+
+
+def test_should_import_category_and_model_map_when_backend_exists(tmp_path, monkeypatch):
+    _install_fake_backend(tmp_path, monkeypatch)
+
+    category_enum, entry_model_by_category = server._load_acervo_models()
+
+    assert category_enum("concilios").value == "concilios"
+    assert set(entry_model_by_category.keys()) == {category_enum.CONCILIOS, category_enum.SANTOS}
+
+
+def test_should_load_existing_slugs_from_the_real_data_file(tmp_path, monkeypatch):
+    _install_fake_backend(tmp_path, monkeypatch)
+    data_dir = server._acervo_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "concilios.json").write_text(
+        json.dumps({"itens": [{"slug": "niceia-i"}, {"slug": "trento"}]}), encoding="utf-8"
+    )
+
+    assert server._load_existing_slugs("concilios") == {"niceia-i", "trento"}
+
+
+def test_should_return_empty_slugs_when_data_file_does_not_exist_yet(tmp_path, monkeypatch):
+    _install_fake_backend(tmp_path, monkeypatch)
+
+    assert server._load_existing_slugs("concilios") == set()
+
+
+def test_should_append_validated_entries_to_the_real_data_file(tmp_path, monkeypatch):
+    _install_fake_backend(tmp_path, monkeypatch)
+    data_dir = server._acervo_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    data_path = data_dir / "concilios.json"
+    data_path.write_text(json.dumps({"itens": [{"slug": "niceia-i"}]}), encoding="utf-8")
+
+    class _FakeEntry:
+        def model_dump(self, mode="json"):
+            return {"slug": "efeso"}
+
+    server._write_entries("concilios", [_FakeEntry()])
+
+    saved = json.loads(data_path.read_text(encoding="utf-8"))
+    assert [item["slug"] for item in saved["itens"]] == ["niceia-i", "efeso"]
+
+
+def test_should_not_touch_file_when_there_is_nothing_to_write(tmp_path, monkeypatch):
+    """_write_entries([]) não deve exigir que o arquivo exista — nenhum
+    item validado é um resultado normal (lote todo rejeitado), não erro."""
+    _install_fake_backend(tmp_path, monkeypatch)
+
+    server._write_entries("concilios", [])  # não deve levantar
+
+
+def test_should_expose_real_categories_via_endpoint_when_backend_exists(tmp_path, monkeypatch):
+    _install_fake_backend(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    response = client.get("/research/categories")
+
+    assert response.status_code == 200
+    assert response.json() == {"categories": ["concilios", "santos"]}
+
+
+def test_should_return_empty_categories_when_backend_is_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "WORKSPACE", tmp_path / "vazio")
+    client = TestClient(app)
+
+    response = client.get("/research/categories")
+
+    assert response.status_code == 200
+    assert response.json() == {"categories": []}

@@ -10,6 +10,7 @@
   --role-arquiteto: #6a5ad6;
   --role-dev_backend: #eb6834;
   --role-dev_frontend: #e87ba4;
+  --role-pesquisador: #f2b632;
 
   --good: #1fce8f;
   --warning: #fab219;
@@ -233,6 +234,7 @@ canvas#scene {
 .log-entry.role-dev_backend { border-left-color: var(--role-dev_backend); }
 .log-entry.role-dev_frontend { border-left-color: var(--role-dev_frontend); }
 .log-entry.role-error { border-left-color: var(--critical); background: #1e1112; }
+.log-entry.role-pesquisador { border-left-color: var(--role-pesquisador); }
 
 .log-entry.activity {
   padding: 4px 10px;
@@ -247,6 +249,7 @@ canvas#scene {
 .log-entry.role-dev_backend .role-tag { color: var(--role-dev_backend); }
 .log-entry.role-dev_frontend .role-tag { color: var(--role-dev_frontend); }
 .log-entry.role-error .role-tag { color: var(--critical); }
+.log-entry.role-pesquisador .role-tag { color: var(--role-pesquisador); }
 
 #usage-bars { display: flex; flex-direction: column; gap: 10px; }
 
