@@ -8,8 +8,11 @@ backend, frontend — sozinho ou orquestrado por um Supervisor.
 
 ## Papéis do time
 
-- **arquiteto** — decide stack e contrato entre backend/frontend (sem
-  tools). Usa Claude Haiku 4.5 (mais barato) — ver "Custo" abaixo.
+- **arquiteto** — decide stack e contrato entre backend/frontend, com
+  tools somente-leitura (`list_dir`/`read_file`/`search_standards`) pra
+  conferir fato real de um projeto já existente antes de decidir — nunca
+  escreve arquivo nem roda comando. Usa Claude Haiku 4.5 (mais barato) —
+  ver "Custo" abaixo.
 - **dev_backend** — implementa a API (FastAPI), com ferramentas reais de
   escrita de arquivo (`agents/tools.py`, sandboxed em `workspace/`).
 - **dev_frontend** — implementa a UI (React), lendo o contrato real do
@@ -45,10 +48,11 @@ Instalando num PC novo (do zero, depois de formatar)? Ver
 
 ### Custo: modelo mais barato para o papel de rascunho/opinião
 
-O `arquiteto` (só opina em texto, sem tools) usa **Claude Haiku 4.5** por
-padrão — o modelo mais barato da Anthropic ($1/$5 por milhão de tokens de
-entrada/saída, contra $5/$25 do Opus 5). `dev_backend`/`dev_frontend`
-continuam em Opus 5: escrevem arquivo de verdade via tool calling, e um
+O `arquiteto` (só decide — nunca escreve arquivo, mesmo tendo tools de
+leitura) usa **Claude Haiku 4.5** por padrão — o modelo mais barato da
+Anthropic ($1/$5 por milhão de tokens de entrada/saída, contra $5/$25 do
+Opus 5). `dev_backend`/`dev_frontend` continuam em Opus 5: escrevem
+arquivo de verdade via tool calling, e um
 modelo mais fraco aí arrisca código pior ou tool call malformada — custa
 mais em retrabalho do que economiza em tokens. Ver `_ROLE_MODELS` em
 `agents/team.py`, e ARCHITECTURE.md pra outras arquiteturas de custo já

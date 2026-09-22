@@ -6,7 +6,7 @@ especialistas com tools são substituídos por fakes.
 """
 
 from agents import supervisor
-from agents.schemas import Decision
+from agents.schemas import ArchitecturePlan, Decision
 
 
 class _FakeRouter:
@@ -52,6 +52,40 @@ def test_should_yield_decision_then_summary_then_stop_when_router_concludes(monk
     assert entries[1].startswith("[dev_backend] instrução: crie o endpoint X")
     assert "endpoint criado" in entries[1]
     assert entries[2] == "[supervisor] Deu a tarefa como concluída."
+
+
+def test_should_pass_extra_callbacks_and_read_only_tools_when_routing_to_architect(monkeypatch):
+    """Bug real corrigido: o arquiteto não recebia nem tools nem
+    extra_callbacks — não tinha como conferir fato real de um projeto
+    existente, e sua atividade (agora que pode explorar) ficava invisível
+    no escritório. Confirma que ambos chegam em run_architect_task."""
+    decisions = [
+        Decision(next_role="arquiteto", instruction="diagnostique o projeto X", reasoning="motivo"),
+        Decision(next_role="concluido", instruction="", reasoning="pronto"),
+    ]
+    monkeypatch.setattr(supervisor, "_router", _FakeRouter(decisions))
+    captured = {}
+    fake_plan = ArchitecturePlan(
+        project_name="projeto-x", stack="FastAPI", summary="Já existe, Clean Architecture.",
+        files=[],
+    )
+
+    def fake_run_architect_task(task, tools, *, extra_callbacks=None):
+        captured["task"] = task
+        captured["tools"] = tools
+        captured["extra_callbacks"] = extra_callbacks
+        return fake_plan
+
+    monkeypatch.setattr(supervisor, "run_architect_task", fake_run_architect_task)
+    sentinel_callbacks = [object()]
+
+    entries = list(supervisor.run("tarefa de teste", extra_callbacks=sentinel_callbacks))
+
+    assert captured["task"] == "diagnostique o projeto X"
+    assert captured["tools"] == supervisor.ARCHITECT_TOOLS
+    assert captured["extra_callbacks"] is sentinel_callbacks
+    assert "projeto-x" in entries[1]
+    assert "Já existe, Clean Architecture." in entries[1]
 
 
 def test_should_stop_after_max_rounds_when_router_never_concludes(monkeypatch):

@@ -8,9 +8,10 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import tool
 
 from agents import team
-from agents.schemas import ColorToken, DesignPlan
+from agents.schemas import ArchitecturePlan, ColorToken, DesignPlan
 
 
 class _RecordingFakeChatModel(BaseChatModel):
@@ -106,9 +107,10 @@ def test_should_send_cache_control_to_model_when_create_agent_is_invoked(monkeyp
 
 
 def test_should_use_haiku_for_arquiteto_but_default_model_for_other_roles(monkeypatch):
-    """arquiteto é o único papel em _ROLE_MODELS (só opina em texto, sem
-    tools) — dev_backend/dev_frontend continuam no padrão da fábrica de
-    modelo (Opus 5), por escreverem arquivo de verdade via tool calling.
+    """arquiteto é o único papel em _ROLE_MODELS (só decide, mesmo com
+    tools de leitura — nunca escreve arquivo) — dev_backend/dev_frontend
+    continuam no padrão da fábrica de modelo (Opus 5), por escreverem
+    arquivo de verdade via tool calling.
     """
     captured_models = []
 
@@ -159,6 +161,109 @@ def test_should_extract_text_when_agent_output_is_content_block_list():
 
     assert team.extract_agent_output_text({"output": blocks}) == "resposta final"
     assert team.extract_agent_output_text({"output": "já é texto"}) == "já é texto"
+
+
+class _ScriptedFakeChatModel(BaseChatModel):
+    """Chat model falso que devolve, em ordem, uma resposta por chamada —
+    mesma técnica de tests/test_researcher.py, pra simular um turno de
+    tool call seguido de outro sem precisar de rede."""
+
+    responses: list[AIMessage] = []
+    call_count: int = 0
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        message = self.responses[self.call_count]
+        self.call_count += 1
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def bind_tools(self, tools, *, tool_choice=None, **kwargs):
+        return self
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-scripted-architect"
+
+
+def _submit_plan_message(plan_args: dict, call_id: str = "call_submit") -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": "submit_architecture_plan", "args": plan_args, "id": call_id}],
+        usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+    )
+
+
+def _explore_call_message(
+    tool_name: str, args: dict, call_id: str = "call_explore"
+) -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": tool_name, "args": args, "id": call_id}],
+        usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+    )
+
+
+_PLAN_ARGS = {
+    "project_name": "acervo-catolico-api",
+    "stack": "FastAPI + Postgres",
+    "summary": "Backend já existente, Clean Architecture em 4 camadas.",
+    "files": [],
+}
+
+
+def test_should_return_plan_immediately_when_no_exploration_is_needed(monkeypatch):
+    """Tarefa greenfield: o arquiteto pode chamar submit_architecture_plan
+    de cara, sem nenhuma tool de exploração — não é um caminho de erro."""
+    fake = _ScriptedFakeChatModel(responses=[_submit_plan_message(_PLAN_ARGS)])
+    monkeypatch.setattr(team, "build_chat_model", lambda *a, **kw: fake)
+
+    plan = team.run_architect_task("crie um app do zero", tools=[])
+
+    assert isinstance(plan, ArchitecturePlan)
+    assert plan.project_name == "acervo-catolico-api"
+    assert fake.call_count == 1
+
+
+def test_should_execute_real_exploration_tool_before_submitting_plan(monkeypatch):
+    """Bug real corrigido: o arquiteto não tinha NENHUMA tool antes disso —
+    pra confirmar um fato de um projeto existente, precisa executar a tool
+    de exploração de verdade (não só simular), ver o resultado, e só
+    então decidir."""
+    calls = []
+
+    @tool
+    def fake_list_dir(path: str = ".") -> str:
+        """Lista arquivos (fake, só pra teste)."""
+        calls.append(path)
+        return "app/main.py\napp/domain/chat/repository.py"
+
+    fake = _ScriptedFakeChatModel(
+        responses=[
+            _explore_call_message("fake_list_dir", {"path": "acervo-catolico-api"}),
+            _submit_plan_message(_PLAN_ARGS),
+        ]
+    )
+    monkeypatch.setattr(team, "build_chat_model", lambda *a, **kw: fake)
+
+    plan = team.run_architect_task(
+        "diagnostique o projeto acervo-catolico-api", tools=[fake_list_dir]
+    )
+
+    assert isinstance(plan, ArchitecturePlan)
+    assert calls == ["acervo-catolico-api"]
+    assert fake.call_count == 2
+
+
+def test_should_raise_when_architect_never_submits_plan(monkeypatch):
+    fake = _ScriptedFakeChatModel(
+        responses=[AIMessage(content="ainda pensando...", usage_metadata={
+            "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+        })]
+        * 3
+    )
+    monkeypatch.setattr(team, "build_chat_model", lambda *a, **kw: fake)
+
+    with pytest.raises(RuntimeError, match="submit_architecture_plan"):
+        team.run_architect_task("tarefa qualquer", tools=[], max_iterations=3)
 
 
 def test_should_pass_design_plan_into_implementation_task_when_running_frontend_task(monkeypatch):

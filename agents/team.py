@@ -9,18 +9,19 @@ Python — mesma ideia de um CLAUDE.md).
 """
 
 from pathlib import Path
+from typing import Any
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel
 
 from agents.llm import build_chat_model, current_provider
-from agents.schemas import DesignPlan
+from agents.schemas import ArchitecturePlan, DesignPlan
 from agents.usage import usage_handler
 
 # Cada entrada é o "system prompt" que define o papel dentro do time.
@@ -52,13 +53,14 @@ _ROLE_STANDARDS: dict[str, list[str]] = {
 }
 
 # Papéis que usam um modelo mais barato que o padrão (Opus 5) — só o
-# arquiteto, que apenas opina em texto (sem tools, sem escrever arquivo).
-# dev_backend/dev_frontend ficam de fora de propósito: escrevem arquivo de
-# verdade via tool calling (create_agent_with_tools), e um modelo mais fraco
-# aí arrisca código pior ou tool call malformada — custa mais em retrabalho
-# do que economiza em tokens (mesmo risco que já vimos ao testar Ollama
-# local, ver agents/llm.py). Um papel sem entrada aqui usa o padrão da
-# fábrica de modelo (Opus 5).
+# arquiteto, que só decide (mesmo tendo tools de leitura pra conferir fato
+# real — ver run_architect_task) e nunca escreve arquivo. dev_backend/
+# dev_frontend ficam de fora de propósito: escrevem arquivo de verdade via
+# tool calling (create_agent_with_tools), e um modelo mais fraco aí arrisca
+# código pior ou tool call malformada — custa mais em retrabalho do que
+# economiza em tokens (mesmo risco que já vimos ao testar Ollama local, ver
+# agents/llm.py). Um papel sem entrada aqui usa o padrão da fábrica de
+# modelo (Opus 5).
 #
 # IDs específicos da Anthropic — só fazem sentido sob esse provedor. Não
 # existe hoje um "Haiku do DeepSeek" (o catálogo é bem menor), então sob
@@ -233,6 +235,124 @@ def extract_agent_output_text(result: dict) -> str:
     if isinstance(output, list):
         return "".join(block.get("text", "") for block in output if block.get("type") == "text")
     return output
+
+
+def _submit_architecture_plan_tool() -> StructuredTool:
+    """Tool "de verdade" (client-side): a saída final estruturada do
+    arquiteto. A função associada nunca é chamada de fato —
+    `run_architect_task` intercepta os argumentos direto de
+    `response.tool_calls`, mesma técnica de
+    `agents/researcher.py::_submit_entries_tool`."""
+
+    def _submit(**_kwargs: Any) -> str:
+        return "ok"
+
+    return StructuredTool.from_function(
+        func=_submit,
+        name="submit_architecture_plan",
+        description=(
+            "Envia a decisão final de arquitetura, depois de explorar o "
+            "workspace o quanto for preciso pra fundamentar a decisão em "
+            "fatos reais — nunca invente estrutura, stack ou conteúdo de "
+            "arquivo que você não leu de verdade."
+        ),
+        args_schema=ArchitecturePlan,
+    )
+
+
+def run_architect_task(
+    task: str,
+    tools: list[BaseTool],
+    *,
+    extra_callbacks: list[BaseCallbackHandler] | None = None,
+    max_iterations: int = 15,
+) -> ArchitecturePlan:
+    """Roda o arquiteto com tools SOMENTE DE LEITURA (list_dir/read_file/
+    search_standards — nunca write_file/run_command; ele não escreve
+    código) e devolve a saída final estruturada (`ArchitecturePlan`).
+
+    Por que não é só `create_agent_with_tools` + `AgentExecutor`: esse loop
+    genérico não tem como terminar em saída ESTRUTURADA, só texto livre
+    (ver `extract_agent_output_text`) — não dava pra devolver um
+    `ArchitecturePlan` validado no fim. Por que não é só
+    `create_agent(..., output_schema=...)` (o design original deste
+    papel): sem tools, o arquiteto não tinha como conferir fato nenhum de
+    um projeto que JÁ EXISTE — só conseguia "chutar" ou admitir que não
+    sabia (bug real: pedir um diagnóstico de um projeto existente sempre
+    devolvia "não tenho ferramenta de execução/leitura disponível", mesmo
+    list_dir/read_file já existindo no projeto pros outros papéis).
+
+    Mesma técnica de `agents/researcher.py::research_batch`: junta as
+    tools de exploração com uma tool `submit_architecture_plan` que nunca
+    é executada de verdade — os argumentos da chamada viram o
+    `ArchitecturePlan` final direto, sem round-trip nenhum. Zero tool call
+    de exploração continua sendo um caminho normal (tarefa greenfield, sem
+    projeto existente pra conferir) — quem decide quanto explorar antes de
+    submeter é o próprio modelo, não um heurística fixa aqui.
+
+    Args:
+        task: descrição da tarefa de arquitetura, em linguagem natural.
+        tools: tools de exploração somente-leitura (nunca write_file/
+            run_command — ver `agents/supervisor.py::ARCHITECT_TOOLS`).
+        extra_callbacks: repassado ao loop — mesmo papel de
+            `create_agent_with_tools`, usado por `office/server.py` pra
+            transmitir cada tool call de exploração em tempo real.
+        max_iterations: teto de idas e voltas antes de desistir — proteção
+            contra loop de exploração sem fim, não um limite de qualidade.
+
+    Raises:
+        RuntimeError: se o arquiteto não chamar `submit_architecture_plan`
+            depois de `max_iterations` iterações.
+    """
+    persona = _build_persona("arquiteto")
+    submit_tool = _submit_architecture_plan_tool()
+    chat_model = (
+        build_chat_model(max_tokens=8192, model=_model_override_for("arquiteto"))
+        .bind_tools([*tools, submit_tool])
+        .with_config(
+            callbacks=[usage_handler, *(extra_callbacks or [])], tags=["role:arquiteto"]
+        )
+    )
+
+    messages: list[Any] = [_system_message(persona), HumanMessage(content=task)]
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    for _ in range(max_iterations):
+        response = chat_model.invoke(messages)
+        messages.append(response)
+
+        if not response.tool_calls:
+            messages.append(
+                HumanMessage(
+                    content=(
+                        "Se já explorou o suficiente, chame "
+                        "submit_architecture_plan agora. Se ainda precisa "
+                        "conferir algo, use as tools de exploração antes de "
+                        "decidir."
+                    )
+                )
+            )
+            continue
+
+        submit_call = None
+        for call in response.tool_calls:
+            if call["name"] == "submit_architecture_plan":
+                submit_call = call
+                continue
+            tool = tools_by_name.get(call["name"])
+            result_text = (
+                f"Tool desconhecida: {call['name']!r}"
+                if tool is None
+                else str(tool.invoke(call["args"]))
+            )
+            messages.append(ToolMessage(content=result_text, tool_call_id=call["id"]))
+
+        if submit_call is not None:
+            return ArchitecturePlan.model_validate(submit_call["args"])
+
+    raise RuntimeError(
+        f"Arquiteto não chamou submit_architecture_plan após {max_iterations} iterações."
+    )
 
 
 def run_frontend_task(

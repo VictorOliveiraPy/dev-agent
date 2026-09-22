@@ -27,7 +27,7 @@ busca web real — ver "Pesquisador" nas decisões abaixo.
 graph TD
     UI[web_ui.py / team_supervisor.py<br/>tarefa do usuário] -->|task| S
     S[Supervisor<br/>roteador com saída estruturada] -.stream ao vivo.-> UI
-    S -->|decide o próximo papel| A[arquiteto<br/>Haiku 4.5, sem tools, saída estruturada]
+    S -->|decide o próximo papel| A[arquiteto<br/>Haiku 4.5, tools de leitura, saída estruturada]
     S --> B[dev_backend<br/>Opus 5, com tools]
     S --> F[dev_frontend<br/>Opus 5, design + tools, 2 etapas]
 
@@ -231,10 +231,12 @@ ser refeita custa mais que a folga extra no teto.
 **Modelo mais barato (Claude Haiku 4.5) só no `arquiteto`, nunca em
 `dev_backend`/`dev_frontend`.** Diferente da ideia descartada abaixo
 (dois modelos pros papéis que ESCREVEM código), o arquiteto só produz
-texto/`ArchitecturePlan` — sem tool calling, sem arquivo real gravado. O
-pior caso de um modelo mais fraco aí é um plano pior, não um `tool_use`
-malformado travando o `AgentExecutor`. Ver `_ROLE_MODELS` em
-`agents/team.py`.
+texto/`ArchitecturePlan` — nunca grava arquivo real nem roda comando,
+mesmo tendo tools de leitura (`list_dir`/`read_file`/`search_standards` —
+ver `agents/team.py::run_architect_task`) pra conferir fato de um projeto
+já existente antes de decidir. Um `tool_use` malformado aí, no pior caso,
+falha uma leitura — não corrompe nada, ao contrário de uma tool call de
+escrita malformada. Ver `_ROLE_MODELS` em `agents/team.py`.
 
 **Propostas testadas e descartadas: Ollama local e OpenRouter como
 provedor alternativo.** Testado de verdade (não só lido): `llama3.1:8b` e

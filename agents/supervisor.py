@@ -18,11 +18,12 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from agents.knowledge import search_standards
 from agents.llm import build_chat_model
-from agents.schemas import ArchitecturePlan, Decision
+from agents.schemas import Decision
 from agents.team import (
     create_agent,
     create_agent_with_tools,
     extract_agent_output_text,
+    run_architect_task,
     run_frontend_task,
 )
 from agents.tools import list_dir, read_file, run_command, write_file
@@ -32,8 +33,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOOLS = [write_file, read_file, list_dir, run_command, search_standards]
 
-# Só quem produz artefatos (código) precisa de tools; o arquiteto só opina
-# (com saída estruturada — ver ArchitecturePlan).
+# Quem produz artefato (código) tem as tools completas; o arquiteto só
+# CONFERE fato real (nunca escreve/roda nada) — ver ARCHITECT_TOOLS e
+# agents.team.run_architect_task pro porquê disso não é a mesma coisa que
+# ROLES_WITH_TOOLS abaixo (saída estruturada, não texto livre).
+ARCHITECT_TOOLS = [list_dir, read_file, search_standards]
+
 ROLES_WITH_TOOLS = {"dev_backend", "dev_frontend"}
 
 # 6 bastava pra tarefas de teste (login, favoritos — 1 tela). Uma tarefa
@@ -82,17 +87,22 @@ _router = (
 )
 
 
-def _run_architect(instruction: str) -> tuple[str, str]:
-    """Aciona o arquiteto com saída estruturada e resume o plano.
+def _run_architect(
+    instruction: str, extra_callbacks: list[BaseCallbackHandler] | None = None
+) -> tuple[str, str]:
+    """Aciona o arquiteto com tools somente-leitura (ARCHITECT_TOOLS) e
+    saída estruturada, e resume o plano.
 
     Diferente dos outros papéis (texto livre), o arquiteto devolve um
     ArchitecturePlan de verdade — o resumo é montado a partir dos campos do
     modelo, não de um corte arbitrário de string, então já é enxuto o
     bastante pra não precisar de truncamento separado (mesmo texto serve
-    pra exibição e pro histórico do roteador).
+    pra exibição e pro histórico do roteador). Ver
+    `agents.team.run_architect_task` pro porquê de tools + saída
+    estruturada juntos precisarem de um loop próprio, não
+    `create_agent`/`create_agent_with_tools` direto.
     """
-    agent = create_agent("arquiteto", output_schema=ArchitecturePlan)
-    plan = agent.invoke({"task": instruction})
+    plan = run_architect_task(instruction, ARCHITECT_TOOLS, extra_callbacks=extra_callbacks)
 
     files = ", ".join(f.path for f in plan.files) or "(nenhum arquivo listado)"
     text = (
@@ -207,7 +217,7 @@ def run(task: str, *, extra_callbacks: list[BaseCallbackHandler] | None = None) 
         yield f"[supervisor] próximo: {decision.next_role} — {decision.reasoning}"
 
         if decision.next_role == "arquiteto":
-            display_text, history_text = _run_architect(decision.instruction)
+            display_text, history_text = _run_architect(decision.instruction, extra_callbacks)
         elif decision.next_role == "dev_frontend":
             display_text, history_text = _run_frontend(decision.instruction, extra_callbacks)
         elif decision.next_role in ROLES_WITH_TOOLS:
