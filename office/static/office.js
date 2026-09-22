@@ -427,6 +427,10 @@ fetch("/research/categories")
   .then((data) => {
     const categories = data.categories || [];
     if (categories.length === 0) return;
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "(escolha uma categoria)";
+    researchCategorySelectEl.appendChild(placeholder);
     for (const name of categories) {
       const option = document.createElement("option");
       option.value = name;
@@ -577,7 +581,12 @@ function runTask() {
 function runResearch() {
   const categoria = researchCategorySelectEl.value;
   const task = researchTaskInputEl.value.trim();
-  if (!categoria || !task || running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!categoria) {
+    researchStatusLineEl.textContent = "Escolha uma categoria antes de pesquisar.";
+    return;
+  }
+  if (!task) return;
   activeMode = "research";
   logHasEntries = false;
   logEl.innerHTML = "";
