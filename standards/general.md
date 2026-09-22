@@ -22,6 +22,29 @@ def create_agent(role: str) -> Runnable:      # ✅ English identifier
     ...
 ```
 
+## ✍️ Prose that doesn't read as AI-generated
+
+Applies to anything meant for a human to read as writing — commit
+messages, PR/README text, error messages, docstring prose (not the
+line-by-line code itself). Based on the `humanizer` skill (Wikipedia's
+"Signs of AI writing") — this is the distilled version; run `/humanizer`
+on a specific paragraph if it still feels off after applying these.
+
+- State the point directly. Don't stage it ("It's not just X, it's Y",
+  "Honestly? It depends...") — just say X or Y.
+- No forced triads ("fast, reliable, and scalable") when the fact needs
+  one or two words, not three.
+- No inflated significance ("marks a pivotal moment", "the future looks
+  bright") — state the fact and stop.
+- No stock AI vocabulary: *delve, testament, landscape, showcasing,
+  leverage, robust, seamless*. Use the plain word.
+- No decorative bold/headings, emoji-as-bullet, or a heading immediately
+  repeated as the first sentence under it.
+- No chatbot residue ("Great question!", "Hope this helps!", "Let's dive
+  in") — this is written output, not a chat reply.
+- Never invent a detail (name, number, date, claim) to fill a gap — say
+  what's actually known, or ask.
+
 ## 📝 Documentation
 
 - Every public function has a docstring explaining **what** it does and,
