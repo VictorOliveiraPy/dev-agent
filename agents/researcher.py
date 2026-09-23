@@ -48,6 +48,16 @@ logger = logging.getLogger(__name__)
 
 ROLE = "pesquisador"
 
+
+class SearchUnavailableError(RuntimeError):
+    """A busca web não está funcionando (cota esgotada, chave inválida).
+
+    Falha alta e imediata de propósito: sem busca o modelo se recusa a
+    propor entrada de memória (regra 1 da persona) e gasta as
+    `max_iterations` inteiras sem chamar `submit_entries`. Quem roda lotes
+    em série deve parar TUDO ao receber isto, não só pular o lote.
+    """
+
 # Descrição do papel — mesma convenção de agents.team.ROLES, mas vive
 # aqui (não lá) porque este papel não segue o padrão create_agent /
 # create_agent_with_tools dos demais. Também não inclui standards/general.md
@@ -300,6 +310,10 @@ def research_batch(
             else:
                 search_calls_left -= 1
                 result = search_tool.invoke(call["args"])
+                # TavilySearch não levanta exceção: devolve {"error": ...}
+                # (ex.: "Error 432 ... plan's set usage limit").
+                if isinstance(result, dict) and result.get("error"):
+                    raise SearchUnavailableError(f"busca web falhou: {result['error']}")
                 result_text = (
                     result if isinstance(result, str)
                     else json.dumps(result, ensure_ascii=False, default=str)

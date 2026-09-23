@@ -35,6 +35,7 @@ from agents.llm import current_provider  # noqa: E402
 from agents.researcher import (  # noqa: E402
     _ENRICH_NOTE,
     _PERSONA,
+    SearchUnavailableError,
     merge_enrichment,
     research_batch,
 )
@@ -119,6 +120,8 @@ def enrich_category(
         print(f"\n=== {name} — sub-lote {n}/{len(batches)}: {[i['slug'] for i in batch]} ===", flush=True)
         try:
             raw = research_batch(_build_task(batch), item_model, persona=persona)
+        except SearchUnavailableError:
+            raise  # sem busca todo lote seguinte falharia igual: para a rodada
         except Exception as exc:  # um sub-lote ruim não derruba as 50 categorias
             print(f"  ✗ sub-lote falhou, pulando: {exc}", flush=True)
             continue
@@ -128,13 +131,22 @@ def enrich_category(
         )
         for warning in warnings:
             print(f"  ⚠ {warning}")
+        applied = 0
         for entry in merged:
             dumped = entry.model_dump(mode="json")
-            by_slug[dumped["slug"]].clear()
-            by_slug[dumped["slug"]].update(dumped)
+            current = by_slug[dumped["slug"]]
+            # Corpo igual ao atual = o modelo devolveu o texto sem aprofundar
+            # (visto quando a busca estava fora do ar): não conta como feito,
+            # fica pendente para uma próxima rodada.
+            if dumped["corpo"] == current["corpo"]:
+                print(f"  ⚠ '{dumped['slug']}': corpo não mudou, segue pendente", flush=True)
+                continue
+            current.clear()
+            current.update(dumped)
             done.add(f"{name}:{dumped['slug']}")
-        updated += len(merged)
-        print(f"  {len(merged)}/{len(raw)} aprofundadas.", flush=True)
+            applied += 1
+        updated += applied
+        print(f"  {applied}/{len(raw)} aprofundadas.", flush=True)
 
         # grava a cada sub-lote: não perde progresso já pago se um posterior falhar
         data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

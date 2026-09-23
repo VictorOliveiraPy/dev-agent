@@ -412,3 +412,19 @@ def test_should_answer_invalid_tool_calls_with_a_tool_message_so_the_next_reques
     assert any(
         getattr(m, "tool_call_id", None) == "call_bad" for m in second_request
     )
+
+
+def test_should_raise_search_unavailable_when_search_tool_returns_an_error(fake_model, monkeypatch):
+    """TavilySearch não levanta exceção ao estourar a cota: devolve
+    {"error": ...}. Sem abortar, o modelo recebe o erro como se fosse
+    resultado e gasta todas as iterações sem chamar submit_entries."""
+
+    class _BrokenSearch:
+        def invoke(self, args):
+            return {"error": ValueError("Error 432: usage limit")}
+
+    monkeypatch.setattr(researcher, "_web_search_tool", lambda: _BrokenSearch())
+    fake_model([_search_call_message("qualquer coisa")])
+
+    with pytest.raises(researcher.SearchUnavailableError, match="432"):
+        researcher.research_batch("pesquise 1 concílio", _ItemModel)
