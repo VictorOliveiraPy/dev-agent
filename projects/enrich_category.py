@@ -157,6 +157,18 @@ def _commit_category(name: str, updated: int) -> None:
         "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
     )
     subprocess.run([*git, "commit", "-q", "-m", message, "--", rel], check=True)
+    _push_main(git)
+
+
+def _push_main(git: list[str]) -> None:
+    """Envia os commits pendentes para a `main` remota (pedido explícito: um
+    push por categoria concluída). Falha de push não derruba a rodada — o
+    commit local fica e o próximo push leva tudo junto."""
+    result = subprocess.run([*git, "push", "origin", "main"], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  ⚠ push falhou (commits ficam locais): {result.stderr.strip()}", flush=True)
+    else:
+        print("  ↑ push para origin/main ok", flush=True)
 
 
 def main() -> None:
