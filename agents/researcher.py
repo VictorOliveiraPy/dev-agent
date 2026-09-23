@@ -57,12 +57,33 @@ ROLE = "pesquisador"
 # este papel estão listadas abaixo, e a validação de verdade é código
 # (validate_batch), não instrução de prompt.
 _PERSONA = (
-    "Você é o Pesquisador de Conteúdo Catolico Tradicional do time. Sua função é encontrar, "
-    "usando a ferramenta de busca web disponível, fatos REAIS e "
-    "verificáveis para novas entradas do Acervo Católico, e propô-las "
-    "através da tool `submit_entries` — nunca inventa fato, data ou "
-    "imagem.\n\n"
-    "Regras inegociáveis:\n"
+    "# PAPEL\n\n"
+    "Você é o Pesquisador de Conteúdo Católico Tradicional do time: um "
+    "pesquisador sênior de história da Igreja, teologia e hagiografia. "
+    "Sua função é encontrar, com a ferramenta de busca web, fatos REAIS e "
+    "verificáveis para novas entradas do Acervo Católico e propô-las pela "
+    "tool `submit_entries`. Você nunca inventa fato, data ou imagem.\n\n"
+    "# COMO PESQUISAR\n\n"
+    "Para cada lote, siga este ciclo antes de propor qualquer coisa:\n"
+    "1. Escreva um parágrafo curto dizendo o que as entradas precisam "
+    "conter para serem completas e úteis (fatos, datas, personagens, "
+    "fontes, imagem).\n"
+    "2. A partir desse parágrafo, defina de 2 a 5 queries e faça as "
+    "buscas. Varie o ângulo: uma query geral, outra em fonte primária ou "
+    "documento oficial, outra em Wikimedia Commons para imagem.\n"
+    "3. Analise os resultados: o que foi confirmado por mais de uma "
+    "fonte, o que divergiu, o que ficou sem resposta.\n"
+    "4. Escreva um parágrafo curto de reflexão apontando o que ainda "
+    "poderia ser aprofundado (data incerta, fonte fraca, imagem ausente).\n"
+    "5. Volte ao passo 1 se a reflexão mostrar lacuna relevante; senão, "
+    "siga para a entrega.\n\n"
+    "Só depois de terminar todas as buscas que julgar necessárias, chame "
+    "`submit_entries`. O objetivo é conteúdo que valha ser lido: prefira o "
+    "detalhe específico e pouco conhecido (o contexto do evento, a "
+    "controvérsia, o número exato, a citação de fonte primária) ao "
+    "resumo genérico que qualquer enciclopédia já traz. Curiosidade só "
+    "entra se estiver apoiada em fonte real.\n\n"
+    "# REGRAS INEGOCIÁVEIS\n\n"
     "1. Toda entrada deve se apoiar em pelo menos uma busca real feita "
     "nesta conversa. Nunca preencha um campo (data, local, título "
     "honorífico) de memória sem confirmar por busca — mesmo que pareça "
@@ -96,8 +117,26 @@ _PERSONA = (
     "antes de propor a entrada e corrija qualquer palavra ou expressão "
     "que tenha escapado em inglês (já aconteceu: 'rightly' dentro de uma "
     "frase em português).\n"
-    "9. Quando terminar de pesquisar todos os itens pedidos, chame a "
-    "tool `submit_entries` UMA única vez, com todos os itens juntos."
+    "9. Chame `submit_entries` UMA única vez, com todos os itens juntos."
+)
+
+# Acrescentado à persona no modo de aprofundamento (entradas que JÁ existem).
+# As regras 1-5, 7 e 8 continuam valendo; a 6 (slug novo) é trocada pela
+# regra abaixo, porque aqui o slug tem de ser o mesmo.
+_ENRICH_NOTE = (
+    "\n\n# MODO APROFUNDAMENTO\n\n"
+    "Nesta tarefa as entradas JÁ EXISTEM no acervo e vêm no texto da "
+    "tarefa. A regra 6 não se aplica: devolva cada item com o MESMO 'id' e "
+    "'slug' recebidos, e mantenha inalterados título, categoria e os "
+    "campos específicos da categoria. Você pode reescrever 'corpo', "
+    "'resumo', 'fontes', 'tags', 'imagem' e 'imagem_credito'.\n"
+    "- O novo 'corpo' deve ser mais profundo que o atual, nunca mais "
+    "curto: preserve tudo que já está correto e acrescente contexto "
+    "histórico, personagens, datas, controvérsias e citações de fonte "
+    "primária que você confirmou por busca.\n"
+    "- Se a busca contradisser algo do texto atual, corrija e diga "
+    "isso na sua reflexão; se não achar nada novo e confiável, devolva o "
+    "texto atual sem inventar."
 )
 
 
@@ -145,6 +184,7 @@ def research_batch(
     max_search_calls: int = 15,
     max_tokens: int = 16000,
     model: str | None = None,
+    persona: str = _PERSONA,
 ) -> list[dict[str, Any]]:
     """Pesquisa e propõe um lote de entradas — SEM validar (ver `validate_batch`).
 
@@ -163,6 +203,8 @@ def research_batch(
             chamar `submit_entries` com o que já tem em vez de buscar mais.
         model: ID do modelo a usar. Se omitido, usa o padrão do provedor
             ativo (`LLM_PROVIDER`) — ver `agents/llm.py::build_chat_model`.
+        persona: prompt de sistema. Padrão: `_PERSONA`; o aprofundamento
+            de entradas existentes passa `_PERSONA + _ENRICH_NOTE`.
         max_tokens: teto de saída do modelo. Um lote com muitos itens
             (bug real já visto: 18 concílios numa chamada só, 200k tokens
             de entrada por causa dos resultados de busca acumulados)
@@ -190,7 +232,7 @@ def research_batch(
         .with_config(callbacks=[usage_handler], tags=[f"role:{ROLE}"])
     )
 
-    messages: list[Any] = [_system_message(_PERSONA), HumanMessage(content=task)]
+    messages: list[Any] = [_system_message(persona), HumanMessage(content=task)]
     search_calls_left = max_search_calls
 
     for iteration in range(max_iterations):
@@ -215,6 +257,18 @@ def research_batch(
             )
 
         if not response.tool_calls:
+            # Tool call com JSON inválido (visto no DeepSeek) cai em
+            # `invalid_tool_calls`, mas a mensagem continua carregando o
+            # tool_call original no histórico: sem um ToolMessage por id, o
+            # próximo request volta 400 ("tool_calls must be followed by
+            # tool messages").
+            for bad in response.invalid_tool_calls:
+                messages.append(
+                    ToolMessage(
+                        content="Argumentos inválidos (JSON malformado) — refaça a chamada.",
+                        tool_call_id=bad["id"],
+                    )
+                )
             messages.append(
                 HumanMessage(
                     content=(
@@ -271,7 +325,8 @@ def _verify_image_url(url: str, timeout: float = 10.0) -> tuple[bool, str]:
     Nunca confia na palavra do modelo — faz a requisição HTTP de fato,
     igual à checagem manual (curl) usada durante a auditoria de conteúdo.
     """
-    headers = {"User-Agent": "AcervoCatolicoBot/1.0 (pesquisador dev-agent)"}
+    # A Wikimedia responde 403 a User-Agent sem contato (verificado com httpx).
+    headers = {"User-Agent": "AcervoCatolicoBot/1.0 (contato: oliveiravictordev@gmail.com) httpx"}
     try:
         with httpx.Client(follow_redirects=True, timeout=timeout) as client:
             response = client.get(url, headers=headers)
@@ -379,3 +434,78 @@ def validate_batch(
     )
 
     return valid, warnings
+
+
+# Campos que o aprofundamento pode alterar; todo o resto vem do original.
+ENRICHABLE_FIELDS = ("corpo", "resumo", "fontes", "tags", "imagem", "imagem_credito")
+
+
+def merge_enrichment(
+    raw_items: list[dict[str, Any]],
+    item_model: type[BaseModel],
+    originals: dict[str, dict[str, Any]],
+    *,
+    model: str = "",
+) -> tuple[list[BaseModel], list[str]]:
+    """Valida o aprofundamento de entradas EXISTENTES e devolve as versões novas.
+
+    Contraparte de `validate_batch` para o modo de aprofundamento: em vez
+    de rejeitar slug repetido, exige que o slug seja um dos originais
+    (`originals`, indexado por slug) e aplica por cima do original só os
+    campos de `ENRICHABLE_FIELDS` — id, slug, título e campos específicos
+    da categoria nunca são aceitos do modelo. Um item é descartado (e o
+    original permanece) se o 'corpo' novo for mais curto que o atual, ou
+    se falhar na validação Pydantic real. Imagem nova é verificada por
+    HTTP; se não resolver, mantém a imagem que já existia.
+    """
+    merged: list[BaseModel] = []
+    warnings: list[str] = []
+    discarded_validation_error = 0
+    images_discarded = 0
+
+    for proposed in raw_items:
+        slug = proposed.get("slug", "<sem slug>")
+        original = originals.get(slug)
+        if original is None:
+            warnings.append(f"descartado '{slug}': slug não é de uma entrada existente")
+            discarded_validation_error += 1
+            continue
+
+        candidate = dict(original)
+        for field in ENRICHABLE_FIELDS:
+            if field in proposed:
+                candidate[field] = proposed[field]
+
+        if len(candidate.get("corpo") or "") < len(original.get("corpo") or ""):
+            warnings.append(f"descartado '{slug}': corpo novo é mais curto que o atual")
+            discarded_validation_error += 1
+            continue
+
+        new_image = candidate.get("imagem")
+        if new_image and new_image != original.get("imagem"):
+            ok, reason = _verify_image_url(new_image)
+            if not ok:
+                warnings.append(
+                    f"'{slug}': imagem nova descartada ({reason}), mantida a atual — {new_image}"
+                )
+                candidate["imagem"] = original.get("imagem")
+                candidate["imagem_credito"] = original.get("imagem_credito")
+                images_discarded += 1
+
+        try:
+            merged.append(item_model.model_validate(candidate))
+        except ValidationError as exc:
+            warnings.append(f"descartado '{slug}': falhou validação — {exc}")
+            discarded_validation_error += 1
+
+    record_quality(
+        role=ROLE,
+        model=model,
+        items_proposed=len(raw_items),
+        items_valid=len(merged),
+        discarded_duplicate_slug=0,
+        discarded_validation_error=discarded_validation_error,
+        images_discarded=images_discarded,
+    )
+
+    return merged, warnings

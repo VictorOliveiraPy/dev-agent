@@ -379,3 +379,36 @@ def test_should_not_call_network_when_entry_has_no_image(monkeypatch):
 
     assert len(valid) == 1
     assert called == []
+
+
+def test_should_answer_invalid_tool_calls_with_a_tool_message_so_the_next_request_is_valid(
+    monkeypatch,
+):
+    """Bug real (DeepSeek): tool call com JSON malformado vira
+    `invalid_tool_calls`; sem um ToolMessage por id, o request seguinte
+    volta 400 ('tool_calls must be followed by tool messages')."""
+    seen: list[list] = []
+
+    class _RecordingModel(_ScriptedFakeChatModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            seen.append(list(messages))
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    invalid = AIMessage(
+        content="",
+        invalid_tool_calls=[
+            {"name": "submit_entries", "args": "{itens: [", "id": "call_bad", "error": "json"}
+        ],
+        usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+    )
+    itens = [{"slug": "batismo"}]
+    fake = _RecordingModel(responses=[invalid, _submit_entries_message(itens)])
+    monkeypatch.setattr(researcher, "build_chat_model", lambda *a, **k: fake)
+    monkeypatch.setattr(researcher, "_web_search_tool", lambda: _FakeSearchTool())
+
+    assert researcher.research_batch("pesquise", _ItemModel) == itens
+
+    second_request = seen[1]
+    assert any(
+        getattr(m, "tool_call_id", None) == "call_bad" for m in second_request
+    )
