@@ -6,3 +6,4 @@ workspace/
 usage_log.jsonl
 quality_log.jsonl
 *.log
+projects/.enrich_done.json
