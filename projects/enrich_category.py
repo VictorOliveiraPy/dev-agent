@@ -156,19 +156,46 @@ def enrich_category(
     return updated
 
 
+# Manifesto de datas de atualização da API (lastmod do sitemap do site). Ver o README da API.
+MANIFEST_REL = "app/data/atualizacoes.json"
+
+
+def _refresh_update_dates(name: str) -> None:
+    """Regenera as datas de atualização da categoria antes do commit.
+
+    Sem isto o `lastmod` do sitemap fica velho: a data vem do histórico do git e do que está
+    editado agora (que ganha a data de hoje). API sem o script (versão antiga): não faz nada.
+    """
+    script = BACKEND_PATH / "scripts" / "gerar_atualizacoes.py"
+    if not script.exists():
+        return
+    result = subprocess.run(
+        [sys.executable, str(script), "--categoria", name],
+        cwd=BACKEND_PATH,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"  ⚠ não atualizei atualizacoes.json: {result.stderr.strip()}", flush=True)
+
+
 def _commit_category(name: str, updated: int) -> None:
-    """Checkpoint no repositório da API: só o JSON da categoria, nada mais."""
+    """Checkpoint no repositório da API: o JSON da categoria e o manifesto de datas, nada mais."""
     rel = f"app/data/{name}.json"
     git = ["git", "-C", str(BACKEND_PATH)]
-    status = subprocess.run([*git, "status", "--porcelain", "--", rel], capture_output=True, text=True)
+    status = subprocess.run(
+        [*git, "status", "--porcelain", "--", rel], capture_output=True, text=True
+    )
     if not status.stdout.strip():
         return
-    subprocess.run([*git, "add", "--", rel], check=True)
+    _refresh_update_dates(name)
+    paths = [rel] + ([MANIFEST_REL] if (BACKEND_PATH / MANIFEST_REL).exists() else [])
+    subprocess.run([*git, "add", "--", *paths], check=True)
     message = (
         f"Aprofunda {updated} entradas de {name} com pesquisa web\n\n"
         "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
     )
-    subprocess.run([*git, "commit", "-q", "-m", message, "--", rel], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", message, "--", *paths], check=True)
     _push_main(git)
 
 
